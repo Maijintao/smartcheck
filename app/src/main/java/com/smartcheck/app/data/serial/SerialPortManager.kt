@@ -36,6 +36,23 @@ class SerialPortManager @Inject constructor() {
         const val TAG = "SerialPortManager"
         const val DEFAULT_DEVICE_PATH = "/dev/ttyS7"
         const val DEFAULT_BAUD_RATE = 115200
+        
+        fun getAvailableTtyDevices(): List<String> {
+            return try {
+                val devices = mutableListOf<String>()
+                val devDir = File("/dev")
+                devDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("tty")) {
+                        devices.add(file.absolutePath)
+                    }
+                }
+                Timber.d(TAG, "Available tty devices: $devices")
+                devices
+            } catch (e: Exception) {
+                Timber.e(TAG, "Failed to list tty devices: ${e.message}")
+                emptyList()
+            }
+        }
     }
 
     private var currentDevicePath = DEFAULT_DEVICE_PATH
@@ -66,6 +83,8 @@ class SerialPortManager @Inject constructor() {
         try {
             Timber.d(TAG, "Opening serial port: $portPath, baudRate: $baudRate")
             
+            Timber.d(TAG, "Available tty devices: ${getAvailableTtyDevices()}")
+            
             val deviceFile = File(portPath)
             if (!deviceFile.exists()) {
                 Timber.e(TAG, "Serial port device not found: $portPath")
@@ -84,6 +103,10 @@ class SerialPortManager @Inject constructor() {
             
             Timber.i(TAG, "Serial port opened successfully: $portPath")
             return true
+        } catch (e: SecurityException) {
+            Timber.e(TAG, "SecurityException: SELinux permission denied for $portPath")
+            Timber.e(TAG, "Available devices: ${getAvailableDevices()}")
+            return false
         } catch (e: Exception) {
             Timber.e(TAG, "Failed to open serial port: ${e.message}")
             close()
