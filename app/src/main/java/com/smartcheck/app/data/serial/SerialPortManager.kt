@@ -1,37 +1,43 @@
 package com.smartcheck.app.data.serial
 
+import android.serialport.SerialPort
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import timber.log.Timber
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * 串口管理器
- * 
+ *
  * 负责与硬件设备通信：
  * - 红外测温模块（/dev/ttyS7, 115200）
  * - 蜂鸣器
  * - 继电器（开门）
- * 
+ *
  * 协议说明：
  * - 上电后模块每 300ms 左右发送一次人体温度数据
  * - 输出格式：{36.53}（以"{"开头，"}"结尾）
  * - 温度以字符形式显示
+ *
+ * 实现说明：
+ * 使用 android-serialport 库通过 JNI/termios 正确配置串口，
+ * 避免 Android SELinux 限制导致 stty 命令失效的问题。
  */
 @Singleton
 class SerialPortManager @Inject constructor() {
-    
-    private var inputStream: FileInputStream? = null
-    private var outputStream: FileOutputStream? = null
+
+    private var serialPort: SerialPort? = null
+    private var inputStream: InputStream? = null
+    private var outputStream: OutputStream? = null
     private var isOpen = false
 
-    // 串口配置
     companion object {
         const val TAG = "SerialPortManager"
         const val DEFAULT_DEVICE_PATH = "/dev/ttyS7"
@@ -40,103 +46,64 @@ class SerialPortManager @Inject constructor() {
 
     private var currentDevicePath = DEFAULT_DEVICE_PATH
     private var currentBaudRate = DEFAULT_BAUD_RATE
-    
-    private val stringBuffer = StringBuilder()
 
-    /**
-     * 配置串口参数
-     */
     fun configure(path: String, baudRate: Int) {
         currentDevicePath = path
         currentBaudRate = baudRate
-        Timber.d(TAG, "Serial port configured: $path @ $baudRate")
+        Timber.tag(TAG).d("Serial port configured: $path @ $baudRate")
     }
 
     /**
      * 打开串口
-     * @param portPath 串口路径，如 "/dev/ttyS7"
-     * @param baudRate 波特率
+     * 使用 SerialPort 库通过 JNI 正确配置 termios（波特率、8N1 等），
+     * 避免 Android 上 stty 命令因 SELinux 限制失效的问题。
      */
     fun open(portPath: String = currentDevicePath, baudRate: Int = currentBaudRate): Boolean {
         if (isOpen) {
-            Timber.d(TAG, "Serial port already open")
+            Log.d(TAG, "Serial port already open")
             return true
         }
 
-        try {
-            Timber.d(TAG, "Opening serial port: $portPath, baudRate: $baudRate")
-            
+        return try {
+            Log.d(TAG, "=== Opening serial port ===")
+            Log.d(TAG, "Path: $portPath, BaudRate: $baudRate")
+
             val deviceFile = File(portPath)
             if (!deviceFile.exists()) {
-                Timber.e(TAG, "Serial port device not found: $portPath")
-                Timber.e(TAG, "Available devices: ${getAvailableDevices()}")
+                Log.e(TAG, "!!! Serial port device NOT found: $portPath")
                 return false
             }
-            
-            // 以读写方式打开串口设备
-            inputStream = FileInputStream(deviceFile)
-            outputStream = FileOutputStream(deviceFile)
-            
-            // 配置串口参数（需要 native 方法或 shell 命令）
-            configureSerialPort(portPath, baudRate)
-            
+
+            // SerialPort 构造函数内部通过 JNI 调用 open() + termios ioctl，
+            // 正确设置波特率和 8N1 帧格式，这是 Android 上串口通信的标准做法
+            serialPort = SerialPort(deviceFile, baudRate)
+            inputStream = serialPort!!.inputStream
+            outputStream = serialPort!!.outputStream
+
             isOpen = true
-            
-            Timber.i(TAG, "Serial port opened successfully: $portPath")
-            return true
+            Log.i(TAG, "=== Serial port opened successfully: $portPath @ $baudRate ===")
+            true
         } catch (e: Exception) {
-            Timber.e(TAG, "Failed to open serial port: ${e.message}")
+            Log.e(TAG, "!!! Failed to open serial port: ${e.message}")
             close()
-            return false
-        }
-    }
-    
-    /**
-     * 配置串口参数（通过 stty 命令）
-     */
-    private fun configureSerialPort(portPath: String, baudRate: Int) {
-        try {
-            // 使用 stty 命令配置串口参数
-            val process = Runtime.getRuntime().exec(arrayOf(
-                "stty",
-                "-F", portPath,
-                "$baudRate",
-                "cs8",
-                "cstopb",
-                "-parenb",
-                "-echo"
-            ))
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                Timber.d(TAG, "Serial port configured successfully: $baudRate baud")
-            } else {
-                Timber.w(TAG, "stty command failed with exit code: $exitCode")
-            }
-        } catch (e: Exception) {
-            Timber.w(TAG, "Failed to configure serial port with stty: ${e.message}")
-        }
-    }
-    
-    /**
-     * 关闭串口
-     */
-    fun close() {
-        Timber.d(TAG, "Closing serial port")
-        try {
-            isOpen = false
-            inputStream?.close()
-            outputStream?.close()
-            inputStream = null
-            outputStream = null
-            Timber.i(TAG, "Serial port closed")
-        } catch (e: Exception) {
-            Timber.e(TAG, "Error closing serial port: ${e.message}")
+            false
         }
     }
 
-    /**
-     * 获取可用的串口设备列表
-     */
+    fun close() {
+        Timber.tag(TAG).d("Closing serial port")
+        try {
+            isOpen = false
+            inputStream = null
+            outputStream = null
+            serialPort?.tryClose()
+            serialPort = null
+            Timber.tag(TAG).i("Serial port closed")
+        } catch (e: Exception) {
+            Timber.tag(TAG).e("Error closing serial port: ${e.message}")
+        }
+    }
+
     fun getAvailableDevices(): List<String> {
         return try {
             val devices = mutableListOf<String>()
@@ -148,133 +115,120 @@ class SerialPortManager @Inject constructor() {
             }
             devices
         } catch (e: Exception) {
-            Timber.e(TAG, "Failed to get available devices: ${e.message}")
+            Timber.tag(TAG).e("Failed to get available devices: ${e.message}")
             emptyList()
         }
     }
-    
+
     /**
      * 读取温度数据流
      * @return 温度值 Flow（单位：摄氏度）
-     * 
+     *
      * 协议格式：{36.53}
-     * - 以"{"开头，"}"结尾
-     * - 温度值范围：32.00 ~ 45.00
+     * - 以"{"开头，"}"结尾，内容固定 5 个 ASCII 字符
+     * - 使用滚动缓冲区处理跨包拆包问题（同 Demo 实现）
      */
     fun readTemperature(): Flow<Float> = flow {
+        Log.d(TAG, "=== Starting readTemperature ===")
+
         if (!isOpen || inputStream == null) {
-            Timber.w(TAG, "Serial port not open")
+            Log.w(TAG, "!!! Serial port NOT open, cannot read temperature")
             return@flow
         }
 
-        val buffer = ByteArray(256)
-        
+        val buffer = ByteArray(1024)
+        // 滚动缓冲区：跨多次 read() 累积数据，正确处理跨包拆包
+        val receiveBuffer = StringBuilder()
+        var lastEmitTime = 0L
+        var lastLogTime = 0L
+        val emitIntervalMs = 500L   // emit 节流：最高 2 次/秒，上层 take(N) 足够
+        val logIntervalMs = 5000L   // 日志节流：每 5 秒最多一条有效温度日志
+
         while (isOpen && inputStream != null) {
             try {
-                // 检查是否有数据可读
                 val available = inputStream?.available() ?: 0
-                
+
                 if (available > 0) {
                     val bytesRead = inputStream?.read(buffer) ?: 0
-                    
                     if (bytesRead > 0) {
-                        val data = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                        Timber.d(TAG, "Received raw: $data")
-                        
-                        // 解析数据
-                        for (char in data) {
-                            when (char) {
-                                '{' -> {
-                                    // 开始标记，清空缓冲区
-                                    stringBuffer.clear()
-                                }
-                                '}' -> {
-                                    // 结束标记，解析温度值
-                                    val tempStr = stringBuffer.toString()
-                                    try {
-                                        val temp = tempStr.toFloat()
-                                        // 验证温度范围（32.00 ~ 45.00）
-                                        if (temp in 32.0f..45.0f) {
-                                            Timber.i(TAG, "Valid temperature: $temp°C")
+                        // 与 Demo 一致，用 ASCII 解码（温度协议为纯 ASCII）
+                        val chunk = String(buffer, 0, bytesRead, Charsets.US_ASCII)
+                        receiveBuffer.append(chunk)
+
+                        // 解析所有完整的 {XX.XX} token
+                        var startIdx = 0
+                        while (startIdx < receiveBuffer.length) {
+                            val open = receiveBuffer.indexOf('{', startIdx)
+                            if (open == -1) break
+                            val close = receiveBuffer.indexOf('}', open)
+                            if (close == -1) break  // 尚未收到完整 token，等下次 read
+
+                            // 完整 token 固定 7 字符：{XX.XX}
+                            if (close - open + 1 == 7) {
+                                val valueStr = receiveBuffer.substring(open + 1, close) // 5 chars
+                                try {
+                                    val temp = valueStr.toFloat()
+                                    if (temp in 32.0f..45.0f) {
+                                        val now = System.currentTimeMillis()
+                                        // emit 节流：500ms 内不重复发射
+                                        if (now - lastEmitTime >= emitIntervalMs) {
+                                            lastEmitTime = now
                                             emit(temp)
-                                        } else {
-                                            Timber.w(TAG, "Temperature out of range: $temp")
                                         }
-                                    } catch (e: NumberFormatException) {
-                                        Timber.w(TAG, "Invalid temperature format: $tempStr")
+                                        // 日志节流：5 秒内不重复打印
+                                        if (now - lastLogTime >= logIntervalMs) {
+                                            lastLogTime = now
+                                            Log.i(TAG, "Temperature: $temp°C")
+                                        }
+                                    } else {
+                                        Log.w(TAG, "Temperature out of range: $temp")
                                     }
-                                    stringBuffer.clear()
+                                } catch (e: NumberFormatException) {
+                                    Log.w(TAG, "Invalid temperature format: '$valueStr'")
                                 }
-                                else -> {
-                                    // 累积数据
-                                    stringBuffer.append(char)
-                                }
+                            } else {
+                                Log.w(TAG, "Unexpected token length: '${receiveBuffer.substring(open, close + 1)}'")
                             }
+                            startIdx = close + 1
+                        }
+
+                        // 保留最后一个 '}' 之后的未处理尾部（处理拆包）
+                        val lastClose = receiveBuffer.lastIndexOf('}')
+                        if (lastClose >= 0) {
+                            receiveBuffer.delete(0, lastClose + 1)
+                        }
+                        // 缓冲区过长说明数据异常，清空防止内存增长
+                        if (receiveBuffer.length > 256) {
+                            Log.w(TAG, "Receive buffer too large without valid data, clearing")
+                            receiveBuffer.clear()
                         }
                     }
                 } else {
-                    // 无数据时短暂等待
                     kotlinx.coroutines.delay(50)
                 }
-                
             } catch (e: Exception) {
-                Timber.e(TAG, "Error reading from serial port: ${e.message}")
+                Log.e(TAG, "!!! Error reading from serial port: ${e.message}")
                 kotlinx.coroutines.delay(500)
             }
         }
+
+        Log.d(TAG, "=== readTemperature ended ===")
     }.flowOn(Dispatchers.IO)
-    
-    /**
-     * 发送蜂鸣器指令
-     * @param durationMs 蜂鸣时长（毫秒）
-     */
+
     fun beep(durationMs: Int = 200) {
         if (!isOpen || outputStream == null) {
-            Timber.w(TAG, "Serial port not open, cannot beep")
+            Timber.tag(TAG).w("Serial port not open, cannot beep")
             return
         }
-        
-        try {
-            // TODO: 根据实际设备协议发送指令
-            Timber.d(TAG, "Beep: ${durationMs}ms")
-        } catch (e: Exception) {
-            Timber.e(TAG, "Error sending beep command: ${e.message}")
-        }
+        Timber.tag(TAG).d("Beep: ${durationMs}ms")
     }
-    
-    /**
-     * 控制继电器（开门）
-     * @param open true=开门, false=关门
-     */
+
     fun controlDoor(open: Boolean) {
         if (!isOpen || outputStream == null) {
-            Timber.w(TAG, "Serial port not open, cannot control door")
+            Timber.tag(TAG).w("Serial port not open, cannot control door")
             return
         }
-        
-        try {
-            // TODO: 根据实际设备协议发送指令
-            Timber.d(TAG, "Door: ${if (open) "OPEN" else "CLOSE"}")
-        } catch (e: Exception) {
-            Timber.e(TAG, "Error controlling door: ${e.message}")
-        }
-    }
-    
-    /**
-     * 发送原始指令
-     */
-    private fun sendCommand(data: ByteArray) {
-        if (!isOpen || outputStream == null) {
-            Timber.w(TAG, "Serial port not open, cannot send command")
-            return
-        }
-        
-        try {
-            outputStream?.write(data)
-            Timber.d(TAG, "Send command: ${data.joinToString(" ") { "%02X".format(it) }}")
-        } catch (e: Exception) {
-            Timber.e(TAG, "Error sending command: ${e.message}")
-        }
+        Timber.tag(TAG).d("Door: ${if (open) "OPEN" else "CLOSE"}")
     }
 
     fun isOpened(): Boolean = isOpen

@@ -13,24 +13,16 @@ object DeviceAuth {
     private const val PREFS_NAME = "device_auth"
     private const val KEY_ACTIVATED = "activated"
     private const val KEY_ACTIVATED_TIME = "activated_time"
-    private const val KEY_ACTIVATION_SERVER_URL = "activation_server_url"
 
-    private var activationServerUrl: String = ""
+    const val SERVER_URL = "http://112.74.39.40:8080"
 
     private lateinit var prefs: SharedPreferences
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        activationServerUrl = prefs.getString(KEY_ACTIVATION_SERVER_URL, "") ?: ""
     }
 
-    fun setActivationServerUrl(url: String) {
-        activationServerUrl = url
-        prefs.edit().putString(KEY_ACTIVATION_SERVER_URL, url).apply()
-        Timber.d("[DeviceAuth] 激活服务器地址: $url")
-    }
-
-    fun getActivationServerUrl(): String = activationServerUrl
+    fun getActivationServerUrl(): String = SERVER_URL
 
     /**
      * 检查是否已激活
@@ -51,15 +43,10 @@ object DeviceAuth {
      */
     suspend fun activate(activationCode: String): Result<Boolean> = withContext(Dispatchers.IO) {
         Timber.d("[DeviceAuth] === 开始激活流程 ===")
-        
-        if (activationServerUrl.isEmpty()) {
-            Timber.e("[DeviceAuth] 激活服务器地址未设置")
-            return@withContext Result.failure(Exception("请先设置激活服务器地址"))
-        }
 
-        Timber.d("[DeviceAuth] 服务器地址: $activationServerUrl")
+        Timber.d("[DeviceAuth] 服务器地址: $SERVER_URL")
         Timber.d("[DeviceAuth] 请求激活: code=$activationCode")
-        
+
         try {
             Timber.d("[DeviceAuth] 正在连接服务器...")
 
@@ -70,7 +57,7 @@ object DeviceAuth {
             """.trimIndent()
 
             // 确保 URL 以 / 结尾，然后添加路径
-            val baseUrl = activationServerUrl.trimEnd('/')
+            val baseUrl = SERVER_URL.trimEnd('/')
             val fullUrl = "$baseUrl/api/device/activate"
             Timber.d("[DeviceAuth] 完整URL: $fullUrl")
             

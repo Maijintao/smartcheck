@@ -47,7 +47,6 @@ fun AdminLoginScreen(
     
     // 激活相关
     var showActivationDialog by remember { mutableStateOf(false) }
-    var serverUrl by remember { mutableStateOf("http://n629a758.natappfree.cc") }
     var activationCode by remember { mutableStateOf("") }
     var activationError by remember { mutableStateOf<String?>(null) }
     var isActivating by remember { mutableStateOf(false) }
@@ -290,12 +289,10 @@ fun AdminLoginScreen(
                                 }
                             }
                         } else {
-                            OutlinedTextField(
-                                value = serverUrl,
-                                onValueChange = { serverUrl = it },
-                                label = { Text("激活服务器地址") },
-                                placeholder = { Text("http://n629a758.natappfree.cc") },
-                                modifier = Modifier.fillMaxWidth()
+                            Text(
+                                text = "服务器：${DeviceAuth.SERVER_URL}",
+                                fontSize = Dimens.TextSizeSmall,
+                                color = Color(0xFF6B7280)
                             )
                             Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
                             OutlinedTextField(
@@ -322,7 +319,6 @@ fun AdminLoginScreen(
                             onClick = {
                                 isActivating = true
                                 activationError = null
-                                DeviceAuth.setActivationServerUrl(serverUrl)
                                 GlobalScope.launch {
                                     val result = DeviceAuth.activate(activationCode)
                                     isActivating = false
@@ -340,7 +336,7 @@ fun AdminLoginScreen(
                                     )
                                 }
                             },
-                            enabled = !isActivating && serverUrl.isNotBlank() && activationCode.isNotBlank()
+                            enabled = !isActivating && activationCode.isNotBlank()
                         ) {
                             Text(if (isActivating) "激活中..." else "确认")
                         }

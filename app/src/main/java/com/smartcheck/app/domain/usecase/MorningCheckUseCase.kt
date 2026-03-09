@@ -41,18 +41,35 @@ class MorningCheckUseCase @Inject constructor(
     }
 
     suspend fun measureTemperatureFlow(readings: Int = 3): Result<TemperatureMeasurementResult> {
+        Timber.tag("MorningCheck").d("=== measureTemperatureFlow started, readings: $readings ===")
+        
         return try {
-            temperatureService.initialize()
+            Timber.tag("MorningCheck").d("Initializing temperature service...")
+            val initResult = temperatureService.initialize()
+            
+            if (initResult.isFailure) {
+                Timber.tag("MorningCheck").e("!!! Temperature service init failed: ${initResult.exceptionOrNull()?.message}")
+                return Result.failure(AppError.HardwareError("temperature", "Temperature service init failed"))
+            }
+            
+            Timber.tag("MorningCheck").d("Temperature service initialized, starting to read...")
             
             var lastTemp = 0f
+            var collectedCount = 0
             temperatureService.observeTemperature()
                 .take(readings)
                 .collect { temp ->
+                    collectedCount++
                     lastTemp = temp
+                    Timber.tag("MorningCheck").d("Got temperature reading #$collectedCount: $temp°C")
                 }
+            
+            Timber.tag("MorningCheck").d("Collected $collectedCount readings, lastTemp: $lastTemp")
             
             val isNormal = lastTemp < TEMP_THRESHOLD
             val message = if (isNormal) "体温正常" else "体温异常：${String.format("%.1f", lastTemp)}°C"
+            
+            Timber.tag("MorningCheck").i("=== Temperature measurement complete: $lastTemp°C, isNormal: $isNormal ===")
             
             Result.success(TemperatureMeasurementResult(
                 temperature = lastTemp,
@@ -60,7 +77,7 @@ class MorningCheckUseCase @Inject constructor(
                 message = message
             ))
         } catch (e: Exception) {
-            Timber.tag("MorningCheck").e(e, "Temperature measurement failed")
+            Timber.tag("MorningCheck").e(e, "!!! Temperature measurement failed: ${e.message}")
             Result.failure(AppError.HardwareError("temperature", e.message ?: "unknown"))
         }
     }

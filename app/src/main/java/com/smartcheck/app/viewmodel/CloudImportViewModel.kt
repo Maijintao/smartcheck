@@ -26,6 +26,8 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
@@ -399,14 +401,8 @@ class CloudImportViewModel @Inject constructor(
     }
 
     private fun floatArrayToByteArray(floatArray: FloatArray): ByteArray {
-        val byteArray = ByteArray(floatArray.size * 4)
-        for (i in floatArray.indices) {
-            val bits = java.lang.Float.floatToIntBits(floatArray[i])
-            byteArray[i * 4] = (bits shr 24).toByte()
-            byteArray[i * 4 + 1] = (bits shr 16).toByte()
-            byteArray[i * 4 + 2] = (bits shr 8).toByte()
-            byteArray[i * 4 + 3] = bits.toByte()
-        }
-        return byteArray
+        val buffer = ByteBuffer.allocate(floatArray.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.asFloatBuffer().put(floatArray)
+        return buffer.array()
     }
 }

@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -131,6 +133,42 @@ fun EmployeeListScreen(
                     EmployeeCard(
                         employee = employee,
                         onClick = { onNavigateEmployeeDetail(employee.id) }
+                    )
+                }
+            }
+        }
+
+        if (uiState.totalPages > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { viewModel.prevPage() },
+                    enabled = uiState.pageIndex > 0
+                ) {
+                    Icon(
+                        Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "上一页",
+                        tint = if (uiState.pageIndex > 0) BrandGreen else Color.LightGray
+                    )
+                }
+                Text(
+                    text = "第 ${uiState.pageIndex + 1} / ${uiState.totalPages} 页",
+                    fontSize = Dimens.TextSizeNormal,
+                    color = Color.Black
+                )
+                IconButton(
+                    onClick = { viewModel.nextPage() },
+                    enabled = uiState.pageIndex < uiState.totalPages - 1
+                ) {
+                    Icon(
+                        Icons.Default.KeyboardArrowRight,
+                        contentDescription = "下一页",
+                        tint = if (uiState.pageIndex < uiState.totalPages - 1) BrandGreen else Color.LightGray
                     )
                 }
             }

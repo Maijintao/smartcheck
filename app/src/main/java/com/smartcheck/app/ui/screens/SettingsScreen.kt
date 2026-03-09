@@ -63,6 +63,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +71,11 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
+import com.smartcheck.app.BuildConfig
+import com.smartcheck.app.utils.AppUpdateChecker
+import com.smartcheck.app.utils.UpdateInfo
 
 @Composable
 fun SettingsScreen(
@@ -110,6 +116,17 @@ fun SettingsScreen(
     var confirmPassword by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf<String?>(null) }
     var passwordLoading by remember { mutableStateOf(false) }
+
+    // 检查更新
+    var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    var downloadProgress by remember { mutableStateOf(-1) }   // -1=空闲, 0-100=下载中
+    var updateError by remember { mutableStateOf("") }
+    val updateScope = rememberCoroutineScope()
+
+    // 版本历史
+    var showHistoryDialog by remember { mutableStateOf(false) }
+    var versionHistory by remember { mutableStateOf<List<UpdateInfo>>(emptyList()) }
+    var historyLoading by remember { mutableStateOf(false) }
 
     fun openEdit(label: String, value: String, onConfirm: (String) -> Unit) {
         dialogLabel = label
@@ -336,6 +353,30 @@ fun SettingsScreen(
                     )
                 }
 
+                // 激活服务器地址（只读）
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
+                        .padding(Dimens.PaddingNormal),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "激活服务器地址",
+                            fontSize = Dimens.TextSizeNormal,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF111827)
+                        )
+                        Text(
+                            text = DeviceAuth.SERVER_URL,
+                            fontSize = Dimens.TextSizeSmall,
+                            color = Color(0xFF6B7280)
+                        )
+                    }
+                }
+
                 // 当前登录用户信息
                 Row(
                     modifier = Modifier
@@ -454,15 +495,75 @@ fun SettingsScreen(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "V1.0.6",
+                            text = "V${BuildConfig.VERSION_NAME}",
                             fontSize = Dimens.TextSizeNormal,
                             color = Color(0xFF111827)
                         )
                         Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
+                        TextButton(
+                            onClick = {
+                                if (!historyLoading) {
+                                    historyLoading = true
+                                    updateScope.launch {
+                                        Timber.i("SettingsScreen 获取版本历史")
+                                        AppUpdateChecker.getVersionHistory(DeviceAuth.SERVER_URL)
+                                            .fold(
+                                                onSuccess = { history ->
+                                                    historyLoading = false
+                                                    versionHistory = history
+                                                    showHistoryDialog = true
+                                                },
+                                                onFailure = { e ->
+                                                    historyLoading = false
+                                                    updateError = e.message ?: "获取历史失败"
+                                                }
+                                            )
+                                    }
+                                }
+                            }
+                        ) {
+                            if (historyLoading) {
+                                CircularProgressIndicator(
+                                    color = BrandGreen,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "更新记录",
+                                    color = BrandGreen,
+                                    fontSize = Dimens.TextSizeSmall
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
                         Button(
                             onClick = {
                                 if (showUpdateLoading) return@Button
+                                Timber.i("SettingsScreen 用户点击'获取新版'")
                                 showUpdateLoading = true
+                                updateError = ""
+                                updateScope.launch {
+                                    Timber.i("SettingsScreen 开始检查更新，服务器: ${DeviceAuth.SERVER_URL}")
+                                    AppUpdateChecker.checkUpdate(DeviceAuth.SERVER_URL)
+                                        .fold(
+                                            onSuccess = { info ->
+                                                showUpdateLoading = false
+                                                if (info != null) {
+                                                    Timber.i("SettingsScreen 发现新版本: ${info.versionName} (code=${info.versionCode})")
+                                                    availableUpdate = info
+                                                } else {
+                                                    Timber.i("SettingsScreen 已是最新版本")
+                                                    updateError = "已是最新版本"
+                                                }
+                                            },
+                                            onFailure = { e ->
+                                                showUpdateLoading = false
+                                                Timber.e("SettingsScreen 检查更新失败: ${e.message}")
+                                                updateError = e.message ?: "检查失败"
+                                            }
+                                        )
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
                         ) {
@@ -477,6 +578,15 @@ fun SettingsScreen(
                             Text(text = "获取新版", color = Color.White)
                         }
                     }
+                }
+
+                if (updateError.isNotEmpty()) {
+                    Text(
+                        text = updateError,
+                        fontSize = Dimens.TextSizeSmall,
+                        color = if (updateError == "已是最新版本") BrandGreen else Color(0xFFDC2626),
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
 
                 SettingRow(
@@ -499,11 +609,90 @@ fun SettingsScreen(
         }
     }
 
-    if (showUpdateLoading) {
-        LaunchedEffect(Unit) {
-            delay(1500)
-            showUpdateLoading = false
+    // 错误/成功提示 3 秒后自动消失
+    LaunchedEffect(updateError) {
+        if (updateError.isNotEmpty()) {
+            delay(3000)
+            updateError = ""
         }
+    }
+
+    // 发现新版本对话框
+    availableUpdate?.let { info ->
+        AlertDialog(
+            onDismissRequest = { availableUpdate = null },
+            title = { Text(text = "发现新版本 ${info.versionName}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall)) {
+                    Text(text = "当前版本：V${BuildConfig.VERSION_NAME}")
+                    if (info.releaseNotes.isNotEmpty()) {
+                        Text(text = "更新内容：${info.releaseNotes}", color = Color(0xFF6B7280))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val url = info.apkUrl
+                        Timber.i("SettingsScreen 用户点击'立即更新'，APK URL: $url")
+                        availableUpdate = null
+                        downloadProgress = 0
+                        updateScope.launch {
+                            try {
+                                Timber.i("SettingsScreen 开始下载 APK")
+                                AppUpdateChecker.downloadAndInstall(context, url) { progress ->
+                                    downloadProgress = progress
+                                }
+                                downloadProgress = -1  // 安装已触发，关闭进度对话框
+                                Timber.i("SettingsScreen 下载完成，安装已触发")
+                            } catch (e: Exception) {
+                                downloadProgress = -1
+                                Timber.e("SettingsScreen 下载失败: ${e.message}")
+                                updateError = "下载失败：${e.message}"
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                ) { Text(text = "立即更新", color = Color.White) }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { availableUpdate = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5E7EB))
+                ) { Text(text = "稍后再说", color = Color.Black) }
+            }
+        )
+    }
+
+    // 下载进度对话框
+    if (downloadProgress >= 0) {
+        AlertDialog(
+            onDismissRequest = {},   // 下载中不允许关闭
+            title = { Text(text = "正在下载更新...") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall)) {
+                    if (downloadProgress in 0..99) {
+                        LinearProgressIndicator(
+                            progress = downloadProgress / 100f,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = BrandGreen
+                        )
+                        Text(
+                            text = "$downloadProgress%",
+                            color = Color(0xFF6B7280),
+                            fontSize = Dimens.TextSizeSmall
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = BrandGreen
+                        )
+                        Text(text = "下载完成，等待安装...", color = Color(0xFF6B7280))
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     if (showDialog) {
@@ -544,6 +733,78 @@ fun SettingsScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5E7EB))
                 ) {
                     Text(text = "取消", color = Color.Black)
+                }
+            }
+        )
+    }
+
+    // 版本历史对话框
+    if (showHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showHistoryDialog = false },
+            title = { Text(text = "版本历史") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal)
+                ) {
+                    if (versionHistory.isEmpty()) {
+                        Text(text = "暂无版本记录", color = Color(0xFF6B7280))
+                    } else {
+                        versionHistory.forEach { v ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFF3F4F6), RoundedCornerShape(6.dp))
+                                    .padding(Dimens.PaddingNormal),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "V${v.versionName}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = Dimens.TextSizeNormal,
+                                        color = Color(0xFF111827)
+                                    )
+                                    if (v.isLatest) {
+                                        Text(
+                                            text = "当前版本",
+                                            fontSize = Dimens.TextSizeSmall,
+                                            color = Color.White,
+                                            modifier = Modifier
+                                                .background(BrandGreen, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                if (v.createdAt.isNotBlank()) {
+                                    Text(
+                                        text = v.createdAt,
+                                        fontSize = Dimens.TextSizeSmall,
+                                        color = Color(0xFF9CA3AF)
+                                    )
+                                }
+                                if (v.releaseNotes.isNotBlank()) {
+                                    Text(
+                                        text = v.releaseNotes,
+                                        fontSize = Dimens.TextSizeSmall,
+                                        color = Color(0xFF374151)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHistoryDialog = false }) {
+                    Text(text = "关闭", color = BrandGreen)
                 }
             }
         )

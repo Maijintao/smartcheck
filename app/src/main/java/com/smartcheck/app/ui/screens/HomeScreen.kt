@@ -110,6 +110,7 @@ fun HomeScreen(
     var handFrontShot by remember { mutableStateOf<Bitmap?>(null) }
     var handBackShot by remember { mutableStateOf<Bitmap?>(null) }
     var showSuccessOverlay by remember { mutableStateOf(false) }
+    var successCountdown by remember { mutableIntStateOf(3) }
     var showTransitionMask by remember { mutableStateOf(false) }
 
     var showSymptomDialog by remember { mutableStateOf(false) }
@@ -117,7 +118,6 @@ fun HomeScreen(
     var autoNavigateState by remember { mutableStateOf<CheckState?>(null) }
     var cameraInitState by remember { mutableStateOf(com.smartcheck.app.ui.components.CameraInitState.Initializing) }
     var showHandFailDialog by remember { mutableStateOf(false) }
-    var showAllPassDialog by remember { mutableStateOf(false) }
     var lastHandIssueShownAt by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(uiState.state) {
@@ -126,12 +126,6 @@ fun HomeScreen(
             symptomConfirmed = false
         } else {
             showSymptomDialog = false
-        }
-
-        if (uiState.state == CheckState.ALL_PASS && !uiState.handHasIssue) {
-            showAllPassDialog = true
-        } else {
-            showAllPassDialog = false
         }
 
         if (uiState.state == CheckState.HAND_FAIL && uiState.handHasIssue) {
@@ -162,6 +156,8 @@ fun HomeScreen(
                 }
             }
             CheckState.IDLE -> {
+                autoNavigateState = null
+                showSuccessOverlay = false
                 handFrontShot.safeRecycle()
                 handBackShot.safeRecycle()
                 faceSnapshot.safeRecycle()
@@ -187,26 +183,31 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(uiState.state) {
+    LaunchedEffect(uiState.state, uiState.isRecordFinalized) {
         val terminalStates = setOf(
             CheckState.ALL_PASS,
             CheckState.HAND_FAIL,
             CheckState.SYMPTOM_FAIL,
             CheckState.TEMP_FAIL
         )
-        if (onNavigateBackToDashboard == null || uiState.state !in terminalStates) return@LaunchedEffect
+        if (uiState.state !in terminalStates) return@LaunchedEffect
         if (!uiState.isRecordFinalized) return@LaunchedEffect
         if (autoNavigateState == uiState.state) return@LaunchedEffect
         autoNavigateState = uiState.state
 
         if (uiState.state == CheckState.ALL_PASS) {
+            // 晨检通过：显示成功蒙层 + 倒计时3秒，然后自动重置等待下一位
             showSuccessOverlay = true
-            delay(1500)
+            for (sec in 3 downTo 1) {
+                successCountdown = sec
+                delay(1000)
+            }
             showSuccessOverlay = false
-            onNavigateBackToDashboard()
+            // scheduleReset(3000) 已在 MainViewModel.finalizeCheckRecord() 中调用，
+            // 倒计时结束时状态会自动切回 IDLE，无需手动导航
         } else {
             delay(1200)
-            onNavigateBackToDashboard()
+            onNavigateBackToDashboard?.invoke()
         }
     }
 
@@ -701,6 +702,12 @@ fun HomeScreen(
                         fontSize = Dimens.TextSizeLarge,
                         fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
+                    Text(
+                        text = "${successCountdown} 秒后开始下一位检测",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = Dimens.TextSizeNormal
+                    )
                 }
             }
         }
@@ -738,40 +745,8 @@ fun HomeScreen(
             )
         }
     }
-
-    androidx.compose.animation.AnimatedContent(
-        targetState = showAllPassDialog,
-        transitionSpec = { androidx.compose.animation.fadeIn(tween(200)) with androidx.compose.animation.fadeOut(tween(200)) },
-        label = "AllPassDialog"
-    ) { visible ->
-        if (visible) {
-            AlertDialog(
-                onDismissRequest = { },
-                title = {
-                    Text(text = "晨检通过", color = BrandGreen, fontSize = Dimens.TextSizeLarge)
-                },
-                text = {
-                    Text(
-                        text = "体温正常，手部检测正常",
-                        fontSize = Dimens.TextSizeNormal
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showAllPassDialog = false
-                            viewModel.finalizeCheckRecord()
-                            viewModel.reset()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-                    ) {
-                        Text(text = "确认", fontSize = Dimens.TextSizeNormal, color = Color.White)
-                    }
-                }
-            )
-        }
-    }
 }
+
 
 private fun Bitmap?.safeRecycle() {
     try {

@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.ui.components.CameraCaptureDialog
 import com.smartcheck.app.ui.theme.BrandGreen
@@ -228,7 +229,7 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
-            FormRow(label = "健康证") {
+            FormRow(label = "健康证 *") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -261,7 +262,7 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
-            FormRow(label = "起始日期") {
+            FormRow(label = "起始日期 *") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -277,7 +278,7 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
-            FormRow(label = "到期日期") {
+            FormRow(label = "到期日期 *") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -296,11 +297,20 @@ fun EmployeeDetailScreen(
         }
 
         if (errorMessage != null) {
-            Text(
-                text = errorMessage!!,
-                color = Color.Red,
-                modifier = Modifier.padding(horizontal = Dimens.PaddingLarge, vertical = Dimens.PaddingSmall)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFEBEE))
+                    .padding(horizontal = Dimens.PaddingLarge, vertical = Dimens.PaddingNormal),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "⚠ ${errorMessage!!}",
+                    color = Color(0xFFD32F2F),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
         }
 
         Row(
@@ -327,6 +337,9 @@ fun EmployeeDetailScreen(
                     if (name.isBlank()) missing.add("姓名")
                     if (employeeId.isBlank()) missing.add("编号")
                     if (faceBitmap == null) missing.add("人脸照片")
+                    if (certBitmap == null && healthCertImagePath.isBlank()) missing.add("健康证照片")
+                    if (certStart == null) missing.add("健康证起始日期")
+                    if (certEnd == null) missing.add("健康证到期日期")
                     
                     if (missing.isNotEmpty()) {
                         errorMessage = "请填写必填项：${missing.joinToString("、")}"

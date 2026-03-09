@@ -23,8 +23,8 @@ android {
         applicationId = "com.smartcheck.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 7
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -122,6 +122,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     
+    // Serial Port (Android serial port library via JNI termios)
+    implementation("com.licheedev:android-serialport:2.1.4")
+
     // Timber (Logging)
     implementation("com.jakewharton.timber:timber:5.0.1")
     
