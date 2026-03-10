@@ -134,11 +134,12 @@ object AppUpdateChecker {
      * 下载 APK 并触发系统安装器。
      * [fix#3] onProgress 保证在主线程回调，且只在进度变化时触发。
      * [fix#7] 日志只在进度跨越 20% 点时打印一次。
+     * @param onProgress (progress: Int, speed: String) -> Unit 进度百分比和下载速度
      */
     suspend fun downloadAndInstall(
         context: Context,
         apkUrl: String,
-        onProgress: (Int) -> Unit
+        onProgress: (Int, String) -> Unit
     ) = withContext(Dispatchers.IO) {
         val apkFile = File(context.filesDir, "update.apk")
 
@@ -160,11 +161,22 @@ object AppUpdateChecker {
                     var downloaded   = 0L
                     var lastProgress = -1          // 上次回调的进度值
                     var lastLogMark  = -1          // 上次打日志的 20% 档位
+                    var lastTime     = System.currentTimeMillis()
                     var read: Int
 
                     while (input.read(buf).also { read = it } != -1) {
                         output.write(buf, 0, read)
                         downloaded += read
+
+                        val now = System.currentTimeMillis()
+                        val timeDiff = now - lastTime
+                        val speed = if (timeDiff >= 500) {
+                            val bytesPerSec = downloaded * 1000 / timeDiff
+                            lastTime = now
+                            formatSpeed(bytesPerSec)
+                        } else {
+                            ""
+                        }
 
                         val progress = if (totalSize > 0)
                             (downloaded * 100 / totalSize).toInt()
@@ -173,7 +185,7 @@ object AppUpdateChecker {
                         // 只在值变化时回调（且切换到主线程）
                         if (progress != lastProgress) {
                             lastProgress = progress
-                            withContext(Dispatchers.Main) { onProgress(progress) }
+                            withContext(Dispatchers.Main) { onProgress(progress, speed) }
 
                             // 每跨越 20% 打一条日志
                             if (progress >= 0) {
@@ -207,6 +219,14 @@ object AppUpdateChecker {
             apkFile.delete()
             Timber.e(e, "$TAG 下载/安装失败")
             throw e
+        }
+    }
+
+    private fun formatSpeed(bytesPerSec: Long): String {
+        return when {
+            bytesPerSec >= 1024 * 1024 -> "%.1f MB/s".format(bytesPerSec / 1024.0 / 1024.0)
+            bytesPerSec >= 1024 -> "%.1f KB/s".format(bytesPerSec / 1024.0)
+            else -> "$bytesPerSec B/s"
         }
     }
 }

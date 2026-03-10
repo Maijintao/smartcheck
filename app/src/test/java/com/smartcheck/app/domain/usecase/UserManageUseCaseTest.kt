@@ -108,4 +108,123 @@ class UserManageUseCaseTest {
         assertTrue(result.isSuccess)
         coVerify { userRepository.deleteUser(1L) }
     }
+
+    // ── updateUser ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `updateUser 姓名不为空时调用 repository 并返回 success`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "张三", employeeId = "E001")
+        coEvery { userRepository.updateUser(user) } returns Result.success(Unit)
+
+        // When
+        val result = useCase.updateUser(user)
+
+        // Then
+        assertTrue(result.isSuccess)
+        coVerify { userRepository.updateUser(user) }
+    }
+
+    @Test
+    fun `updateUser 姓名为空时返回 ValidationError 且不调用 repository`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "", employeeId = "E001")
+
+        // When
+        val result = useCase.updateUser(user)
+
+        // Then
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AppError.ValidationError)
+        coVerify(exactly = 0) { userRepository.updateUser(any()) }
+    }
+
+    // ── deactivateUser ──────────────────────────────────────────────────────
+
+    @Test
+    fun `deactivateUser 存在的用户时将 isActive 置为 false`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "张三", employeeId = "E001", isActive = true)
+        coEvery { userRepository.getUserById(1L) } returns Result.success(user)
+        coEvery { userRepository.updateUser(user.copy(isActive = false)) } returns Result.success(Unit)
+
+        // When
+        val result = useCase.deactivateUser(1L)
+
+        // Then
+        assertTrue(result.isSuccess)
+        coVerify { userRepository.updateUser(user.copy(isActive = false)) }
+    }
+
+    @Test
+    fun `deactivateUser 用户不存在时返回 failure`() = runTest {
+        // Given
+        coEvery { userRepository.getUserById(99L) } returns Result.failure(AppError.NotFound)
+
+        // When
+        val result = useCase.deactivateUser(99L)
+
+        // Then
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { userRepository.updateUser(any()) }
+    }
+
+    // ── activateUser ────────────────────────────────────────────────────────
+
+    @Test
+    fun `activateUser 存在的用户时将 isActive 置为 true`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "张三", employeeId = "E001", isActive = false)
+        coEvery { userRepository.getUserById(1L) } returns Result.success(user)
+        coEvery { userRepository.updateUser(user.copy(isActive = true)) } returns Result.success(Unit)
+
+        // When
+        val result = useCase.activateUser(1L)
+
+        // Then
+        assertTrue(result.isSuccess)
+        coVerify { userRepository.updateUser(user.copy(isActive = true)) }
+    }
+
+    @Test
+    fun `activateUser 用户不存在时返回 failure`() = runTest {
+        // Given
+        coEvery { userRepository.getUserById(99L) } returns Result.failure(AppError.NotFound)
+
+        // When
+        val result = useCase.activateUser(99L)
+
+        // Then
+        assertTrue(result.isFailure)
+    }
+
+    // ── getUserById / getUserByEmployeeId ───────────────────────────────────
+
+    @Test
+    fun `getUserById 委托给 userRepository`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "张三", employeeId = "E001")
+        coEvery { userRepository.getUserById(1L) } returns Result.success(user)
+
+        // When
+        val result = useCase.getUserById(1L)
+
+        // Then
+        assertTrue(result.isSuccess)
+        assertEquals(user, result.getOrNull())
+    }
+
+    @Test
+    fun `getUserByEmployeeId 委托给 userRepository`() = runTest {
+        // Given
+        val user = User(id = 1L, name = "张三", employeeId = "E001")
+        coEvery { userRepository.getUserByEmployeeId("E001") } returns Result.success(user)
+
+        // When
+        val result = useCase.getUserByEmployeeId("E001")
+
+        // Then
+        assertTrue(result.isSuccess)
+        assertEquals(user, result.getOrNull())
+    }
 }

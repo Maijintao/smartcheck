@@ -120,6 +120,7 @@ fun SettingsScreen(
     // 检查更新
     var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadProgress by remember { mutableStateOf(-1) }   // -1=空闲, 0-100=下载中
+    var downloadSpeed by remember { mutableStateOf("") }      // 下载速度
     var updateError by remember { mutableStateOf("") }
     val updateScope = rememberCoroutineScope()
 
@@ -637,16 +638,20 @@ fun SettingsScreen(
                         Timber.i("SettingsScreen 用户点击'立即更新'，APK URL: $url")
                         availableUpdate = null
                         downloadProgress = 0
+                        downloadSpeed = ""
                         updateScope.launch {
                             try {
                                 Timber.i("SettingsScreen 开始下载 APK")
-                                AppUpdateChecker.downloadAndInstall(context, url) { progress ->
+                                AppUpdateChecker.downloadAndInstall(context, url) { progress, speed ->
                                     downloadProgress = progress
+                                    downloadSpeed = speed
                                 }
                                 downloadProgress = -1  // 安装已触发，关闭进度对话框
+                                downloadSpeed = ""
                                 Timber.i("SettingsScreen 下载完成，安装已触发")
                             } catch (e: Exception) {
                                 downloadProgress = -1
+                                downloadSpeed = ""
                                 Timber.e("SettingsScreen 下载失败: ${e.message}")
                                 updateError = "下载失败：${e.message}"
                             }
@@ -677,11 +682,23 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             color = BrandGreen
                         )
-                        Text(
-                            text = "$downloadProgress%",
-                            color = Color(0xFF6B7280),
-                            fontSize = Dimens.TextSizeSmall
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "$downloadProgress%",
+                                color = Color(0xFF6B7280),
+                                fontSize = Dimens.TextSizeSmall
+                            )
+                            if (downloadSpeed.isNotEmpty()) {
+                                Text(
+                                    text = downloadSpeed,
+                                    color = BrandGreen,
+                                    fontSize = Dimens.TextSizeSmall
+                                )
+                            }
+                        }
                     } else {
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
