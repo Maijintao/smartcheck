@@ -32,7 +32,7 @@ data class UiState(
     val currentUserName: String = "",
     val currentUserId: Long? = null,
     val currentTemp: Float = 0.0f,
-    val message: String = "请正视摄像头",
+    val message: String = "请将人脸对准摄像头",
     val isProcessing: Boolean = false,
     val healthCertEndDate: Long? = null,
     val healthCertDaysRemaining: Int? = null,

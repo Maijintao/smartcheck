@@ -317,7 +317,7 @@ class MorningCheckUseCase @Inject constructor(
     }
 
     fun speakHealthCertExpired() {
-        voiceService.speak("健康证已过期，禁止晨检")
+        voiceService.speak("健康证已过期")
     }
 
     fun speak(text: String) {
@@ -337,7 +337,7 @@ class MorningCheckUseCase @Inject constructor(
     }
 
     fun speakTemperatureAbnormal(temp: Float) {
-        voiceService.speak("体温异常，请复测")
+        voiceService.speak("体温异常")
     }
 
     fun speakHandCheckPass() {
@@ -345,7 +345,7 @@ class MorningCheckUseCase @Inject constructor(
     }
 
     fun speakHandCheckFail() {
-        voiceService.speak("手部检测不合格")
+        voiceService.speak("手部有异物")
     }
 
     fun speakAllPass() {

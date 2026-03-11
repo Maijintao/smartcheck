@@ -68,7 +68,7 @@ class MainViewModel @Inject constructor(
     private val imageStorageUseCase: ImageStorageUseCase,
     private val appScope: CoroutineScope
 ) : ViewModel() {
-    
+
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     
@@ -121,8 +121,11 @@ class MainViewModel @Inject constructor(
     private var stableFramesCount: Int = 0
     private val requiredStableFrames: Int = 3 // 连续3帧稳定才识别
     private var lastRecognizedUserId: Long? = null // 上次识别成功的用户ID，避免重复识别
+    private var lastUnknownTrackingId: Int = -1
+    private var lastUnknownVoiceAt: Long = 0L
 
     private val minFreeBytes = 200L * 1024L * 1024L
+    private val faceGuideText = "请将人脸对准摄像头"
 
     private val isRockchip: Boolean = run {
         val hardware = Build.HARDWARE.lowercase()
@@ -135,6 +138,7 @@ class MainViewModel @Inject constructor(
         Timber.tag("MainViewModel").d("MainViewModel initialized")
         hardwareRepository.init()
         voiceService.setEnabled(settingsRepository.isVoiceEnabled())
+        announceFaceGuide(force = true)
         viewModelScope.launch {
             settingsRepository.voiceEnabled.collect { enabled ->
                 voiceService.setEnabled(enabled)
@@ -151,6 +155,30 @@ class MainViewModel @Inject constructor(
             MorningCheckLogger.logStateTransition(oldState, newState)
         }
         _uiState.update(update)
+    }
+
+    private fun announceFaceGuide(force: Boolean = false) {
+        val current = _uiState.value
+        val shouldResetUi =
+            current.message != faceGuideText ||
+                current.currentUserId != null ||
+                current.currentUserName.isNotBlank() ||
+                current.faceConfidence != 0f
+
+        if (shouldResetUi) {
+            _uiState.update {
+                it.copy(
+                    message = faceGuideText,
+                    currentUserId = null,
+                    currentUserName = "",
+                    faceConfidence = 0f
+                )
+            }
+        }
+
+        if (force || shouldResetUi) {
+            voiceService.speak(faceGuideText)
+        }
     }
 
     fun processFrame(frame: Bitmap) {
@@ -274,6 +302,12 @@ class MainViewModel @Inject constructor(
                                         faceConfidence = result.confidence
                                     )
                                 }
+                                val currentNow = SystemClock.elapsedRealtime()
+                                if (currentTrackingId != lastUnknownTrackingId || currentNow - lastUnknownVoiceAt > 3000L) {
+                                    voiceService.speak("人脸未录入")
+                                    lastUnknownTrackingId = currentTrackingId
+                                    lastUnknownVoiceAt = currentNow
+                                }
                             }
                         }
                     } else {
@@ -284,14 +318,7 @@ class MainViewModel @Inject constructor(
                         lastTrackingId = currentTrackingId
                         stableFramesCount = 1
                         lastRecognizedUserId = null
-                        _uiState.update {
-                            it.copy(
-                                message = "请正视摄像头",
-                                currentUserId = null,
-                                currentUserName = "",
-                                faceConfidence = 0f
-                            )
-                        }
+                        announceFaceGuide()
                     }
                 } else {
                     // 没检测到人脸，重置跟踪状态
@@ -302,14 +329,8 @@ class MainViewModel @Inject constructor(
                     lastTrackingId = -1
                     stableFramesCount = 0
                     lastRecognizedUserId = null
-                    _uiState.update {
-                        it.copy(
-                            message = "请正视摄像头",
-                            currentUserId = null,
-                            currentUserName = "",
-                            faceConfidence = 0f
-                        )
-                    }
+                    lastUnknownTrackingId = -1
+                    announceFaceGuide()
                 }
                 
             } catch (e: CancellationException) {
@@ -331,56 +352,58 @@ class MainViewModel @Inject constructor(
         if (_uiState.value.state != CheckState.IDLE) return
         Timber.tag("MainViewModel").d("Face recognized: $userName (confidence: $confidence)")
 
-        val startTime = System.currentTimeMillis()
-
         viewModelScope.launch {
-            val result = morningCheckUseCase.onFaceRecognized(userId, userName, confidence)
-
-            _uiState.update {
-                it.copy(
-                    state = if (result.isAllowedToContinue) CheckState.FACE_PASS else CheckState.HEALTH_CERT_EXPIRED,
-                    currentUserId = result.userId,
-                    currentUserName = result.userName,
-                    healthCertEndDate = result.healthCertEndDate,
-                    healthCertDaysRemaining = result.healthCertDaysRemaining,
-                    faceConfidence = result.faceConfidence,
-                    message = result.message,
-                    // 即使健康证过期，也显示已识别用户的人脸图片
-                    faceImagePath = result.userFaceImagePath
-                )
-            }
-
-            PerformanceMetrics.recordDuration("face_recognition", System.currentTimeMillis() - startTime)
-            UserActionTracker.track(ActionType.FACE_RECOGNIZED, "MainScreen", "userId=$userId, name=$userName")
-
-            if (!result.isAllowedToContinue) {
-                hardwareRepository.beep("error")
-                scheduleReset(5000)
-                return@launch
-            }
-
-            faceSaveJob?.cancel()
-            faceSaveJob = viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val bitmap = currentFaceBitmap ?: return@launch
-                    val saveResult = imageStorageUseCase.saveFaceImage(bitmap)
-                    saveResult.onSuccess { name ->
-                        currentFacePath = name
-                        _uiState.update { it.copy(faceImagePath = name) }
-                    }.onFailure {
-                        _uiState.update { it.copy(message = "照片保存失败") }
-                    }
-                    bitmap.recycle()
-                    currentFaceBitmap = null
-                } catch (e: Exception) {
-                    Timber.tag("MainViewModel").e(e, "Failed to save face snapshot")
-                }
-            }
-
-            hardwareRepository.beep("success")
-            delay(1000)
-            startTemperatureMeasure()
+            proceedAfterFaceRecognized(userId, userName, confidence)
         }
+    }
+
+    private suspend fun proceedAfterFaceRecognized(userId: Long, userName: String, confidence: Float) {
+        val startTime = System.currentTimeMillis()
+        val result = morningCheckUseCase.onFaceRecognized(userId, userName, confidence)
+
+        _uiState.update {
+            it.copy(
+                state = if (result.isAllowedToContinue) CheckState.FACE_PASS else CheckState.HEALTH_CERT_EXPIRED,
+                currentUserId = result.userId,
+                currentUserName = result.userName,
+                healthCertEndDate = result.healthCertEndDate,
+                healthCertDaysRemaining = result.healthCertDaysRemaining,
+                faceConfidence = result.faceConfidence,
+                message = result.message,
+                faceImagePath = result.userFaceImagePath
+            )
+        }
+
+        PerformanceMetrics.recordDuration("face_recognition", System.currentTimeMillis() - startTime)
+        UserActionTracker.track(ActionType.FACE_RECOGNIZED, "MainScreen", "userId=$userId, name=$userName")
+
+        if (!result.isAllowedToContinue) {
+            hardwareRepository.beep("error")
+            scheduleReset(5000)
+            return
+        }
+
+        faceSaveJob?.cancel()
+        faceSaveJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val bitmap = currentFaceBitmap ?: return@launch
+                val saveResult = imageStorageUseCase.saveFaceImage(bitmap)
+                saveResult.onSuccess { name ->
+                    currentFacePath = name
+                    _uiState.update { it.copy(faceImagePath = name) }
+                }.onFailure {
+                    _uiState.update { it.copy(message = "照片保存失败") }
+                }
+                bitmap.recycle()
+                currentFaceBitmap = null
+            } catch (e: Exception) {
+                Timber.tag("MainViewModel").e(e, "Failed to save face snapshot")
+            }
+        }
+
+        hardwareRepository.beep("success")
+        delay(1000)
+        startTemperatureMeasure()
     }
     
     /**
@@ -667,7 +690,7 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 state = CheckState.HAND_PALM_CHECKING,
-                message = "请将手心对准摄像头",
+                message = "请将手心放入检测仪",
                 handPalmPath = null,
                 handBackPath = null,
                 handPalmInfos = emptyList(),
@@ -675,7 +698,7 @@ class MainViewModel @Inject constructor(
             )
         }
 
-        voiceService.speak("请将手心对准摄像头")
+        voiceService.speak("请将手心放入检测仪")
     }
 
     private fun startHandBackCheck() {
@@ -687,11 +710,11 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 state = CheckState.HAND_BACK_CHECKING,
-                message = "请将手背对准摄像头"
+                message = "请将手背放入检测仪"
             )
         }
 
-        voiceService.speak("请翻转手背对准摄像头")
+        voiceService.speak("请将手背放入检测仪")
     }
 
     private fun processHandStepFrame(frame: Bitmap) {
@@ -886,9 +909,10 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             UiState(
                 state = CheckState.IDLE,
-                message = "请正视摄像头"
+                message = faceGuideText
             )
         }
+        voiceService.speak(faceGuideText)
 
         _handDetectionState.value = emptyList()
         _faceDetectionBoxes.value = emptyList()
@@ -903,6 +927,8 @@ class MainViewModel @Inject constructor(
         lastTrackingId = -1
         stableFramesCount = 0
         lastRecognizedUserId = null
+        lastUnknownTrackingId = -1
+        lastUnknownVoiceAt = 0L
         currentFaceBitmap.safeRecycle()
         currentPalmBitmap.safeRecycle()
         currentBackBitmap.safeRecycle()
@@ -1071,7 +1097,6 @@ class MainViewModel @Inject constructor(
         resetJob?.cancel()
         handCooldownJob?.cancel()
         autoSubmitJob?.cancel()
-        voiceService.shutdown()
         Timber.tag("MainViewModel").d("MainViewModel cleared")
     }
 

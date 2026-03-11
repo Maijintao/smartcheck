@@ -161,6 +161,11 @@ class EmployeeDetailViewModel @Inject constructor(
         val current = _user.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             userRepository.deleteUser(current.id)
+            runCatching {
+                faceEngine.refreshUserCache()
+            }.onFailure { e ->
+                Timber.w(e, "删除员工后刷新人脸缓存失败")
+            }
             _events.tryEmit(UiEvent.Saved)
         }
     }
@@ -281,6 +286,13 @@ class EmployeeDetailViewModel @Inject constructor(
                         userRepository.updateUser(newUser)
                         _user.value = newUser
                     }
+
+                    runCatching {
+                        faceEngine.refreshUserCache()
+                    }.onFailure { e ->
+                        Timber.w(e, "保存员工后刷新人脸缓存失败")
+                    }
+
                     launch(Dispatchers.Main) {
                         onSuccess()
                         _faceBitmap.value = null

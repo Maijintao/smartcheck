@@ -244,9 +244,21 @@ fun HomeScreen(
         }
     }
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.weight(0.65f).fillMaxHeight()) {
-            if (cameraPermissionState.status.isGranted) {
+    val statusText = when {
+        cameraInitState != com.smartcheck.app.ui.components.CameraInitState.Ready -> if (isHandStage) "正在初始化手部相机..." else "正在初始化人脸相机..."
+        showTransitionMask -> "正在切换相机..."
+        else -> uiState.message.ifBlank { "请将人脸对准摄像头" }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .weight(0.65f)
+                    .fillMaxHeight()
+                    .background(Color.Black)
+            ) {
+                if (cameraPermissionState.status.isGranted) {
                 DualCameraPreview(
                     modifier = Modifier
                         .fillMaxSize()
@@ -297,18 +309,6 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-
-                val statusText = when {
-                    cameraInitState != com.smartcheck.app.ui.components.CameraInitState.Ready -> if (isHandStage) "正在初始化手部相机..." else "正在初始化人脸相机..."
-                    showTransitionMask -> "正在切换相机..."
-                    else -> uiState.message.ifBlank { "请正视摄像头" }
-                }
-                StatusBadge(
-                    text = statusText,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(Dimens.PaddingNormal)
-                )
 
                 ScannerFrameOverlay()
 
@@ -361,28 +361,41 @@ fun HomeScreen(
                 if (showTransitionMask && cameraInitState == com.smartcheck.app.ui.components.CameraInitState.Ready) {
                     TransitionMask()
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "需要相机权限以进行人脸识别",
-                            fontSize = Dimens.TextSizeNormal
-                        )
-                        Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
-                        Button(onClick = { cameraPermissionState.launchPermissionRequest() }) {
-                            Text(text = "授予权限", fontSize = Dimens.TextSizeNormal)
+
+                StatusBadge(
+                    text = statusText,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = Dimens.PaddingNormal)
+                )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "需要相机权限以进行人脸识别",
+                                fontSize = Dimens.TextSizeNormal,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
+                            Button(onClick = { cameraPermissionState.launchPermissionRequest() }) {
+                                Text(text = "授予权限", fontSize = Dimens.TextSizeNormal)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        Column(
-            modifier = Modifier
-                .weight(0.35f)
-                .fillMaxHeight()
-                .padding(Dimens.PaddingNormal)
-        ) {
+            Column(
+                modifier = Modifier
+                    .weight(0.35f)
+                    .fillMaxHeight()
+                    .padding(Dimens.PaddingNormal)
+            ) {
             Row(modifier = Modifier.fillMaxWidth().height(120.dp)) {
                 val context = LocalContext.current
                 val faceFile = FileUtil.getRecordImageFile(context, uiState.faceImagePath)?.takeIf { it.exists() }
@@ -625,6 +638,7 @@ fun HomeScreen(
             ) {
                 Text("提交并上岗")
             }
+        }
         }
     }
 
@@ -1112,8 +1126,9 @@ private fun StatusBadge(
         Text(
             text = text,
             color = Color.White,
-            fontSize = Dimens.TextSizeSmall,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            fontSize = Dimens.TextSizeLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
         )
     }
 }

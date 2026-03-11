@@ -2,6 +2,7 @@ package com.smartcheck.app.ui.components
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.PixelFormat
@@ -63,6 +64,7 @@ fun DualCameraPreview(
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FIT_CENTER
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            setBackgroundColor(Color.BLACK)
         }
     }
 
