@@ -25,14 +25,14 @@ class TemperatureServiceImpl @Inject constructor(
     override suspend fun initialize(): Result<Unit> {
         Timber.d("=== TemperatureServiceImpl.initialize() ===")
         Timber.d("Current initialized: $initialized")
-        
+
         return try {
             Timber.d("Configuring serial port: $TEMP_DEVICE_PATH, $TEMP_BAUD_RATE")
             serialPortManager.configure(TEMP_DEVICE_PATH, TEMP_BAUD_RATE)
-            
+
             Timber.d("Opening serial port...")
             val opened = serialPortManager.open()
-            
+
             if (opened) {
                 initialized = true
                 Timber.i("=== TemperatureService initialized successfully ===")

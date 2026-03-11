@@ -29,6 +29,13 @@ class SeetaFaceEngine @Inject constructor(
     private val userRepository: IUserRepository
 ) : FaceEngine {
 
+    companion object {
+        private const val MULTI_USER_MATCH_THRESHOLD = 0.78f
+        private const val SINGLE_USER_MATCH_THRESHOLD = 0.82f
+        private const val MIN_TOP_GAP = 0.04f
+        private const val FACE_CROP_EXPAND_RATIO = 0.20f
+    }
+
     private var isInitialized = false
     private val isProcessing = AtomicBoolean(false)
     private val initInProgress = AtomicBoolean(false)
@@ -154,9 +161,17 @@ class SeetaFaceEngine @Inject constructor(
                 val bbox = bestFace?.box?.let {
                     Rect(it.left.toInt(), it.top.toInt(), it.right.toInt(), it.bottom.toInt())
                 } ?: Rect()
+                val bestFaceScore = bestFace?.score ?: 0f
 
                 val featureStart = SystemClock.elapsedRealtime()
-                val feature = FaceSdk.extractFeature(frame)
+                val featureBitmap = if (!bbox.isEmpty) cropFaceBitmap(frame, bbox) else frame
+                val feature = try {
+                    FaceSdk.extractFeature(featureBitmap)
+                } finally {
+                    if (featureBitmap !== frame && !featureBitmap.isRecycled) {
+                        featureBitmap.recycle()
+                    }
+                }
                 val featureMs = SystemClock.elapsedRealtime() - featureStart
 
                 if (feature == null) {
@@ -191,15 +206,20 @@ class SeetaFaceEngine @Inject constructor(
                 var bestUserId: Long? = null
                 var bestUserName: String? = null
                 var bestSim = 0.0f
+                var secondBestSim = 0.0f
 
                 val compareStart = SystemClock.elapsedRealtime()
                 for (cachedUser in cachedUsers) {
                     if (cachedUser.feature.size != feature.size) continue
                     val sim = FaceSdk.calculateSimilarity(cachedUser.feature, feature)
+                    if (!sim.isFinite()) continue
                     if (sim > bestSim) {
+                        secondBestSim = bestSim
                         bestSim = sim
                         bestUserId = cachedUser.id
                         bestUserName = cachedUser.name
+                    } else if (sim > secondBestSim) {
+                        secondBestSim = sim
                     }
                 }
                 val compareMs = SystemClock.elapsedRealtime() - compareStart
@@ -214,8 +234,15 @@ class SeetaFaceEngine @Inject constructor(
                     bestSim = bestSim
                 )
 
-                val threshold = 0.70f
-                if (bestUserId != null && bestSim >= threshold) {
+                val threshold = if (cachedUsers.size <= 1) {
+                    SINGLE_USER_MATCH_THRESHOLD
+                } else {
+                    MULTI_USER_MATCH_THRESHOLD
+                }
+                val minGap = if (cachedUsers.size <= 1) 0f else MIN_TOP_GAP
+                val topGap = if (secondBestSim > 0f) bestSim - secondBestSim else Float.MAX_VALUE
+
+                if (bestUserId != null && bestSim >= threshold && topGap >= minGap) {
                     FaceResult(
                         userId = bestUserId,
                         userName = bestUserName,
@@ -224,6 +251,18 @@ class SeetaFaceEngine @Inject constructor(
                         isLive = true
                     )
                 } else {
+                    if (bestUserId != null) {
+                        Timber.d(
+                            "[FaceEngine] 拒绝匹配 user=%s sim=%.3f threshold=%.3f gap=%.3f(min=%.3f) faceScore=%.3f users=%d",
+                            bestUserName,
+                            bestSim,
+                            threshold,
+                            topGap,
+                            minGap,
+                            bestFaceScore,
+                            cachedUsers.size
+                        )
+                    }
                     if (!bbox.isEmpty) {
                         FaceResult(
                             userId = null,
@@ -352,5 +391,29 @@ class SeetaFaceEngine @Inject constructor(
         val out = FloatArray(bytes.size / 4)
         buffer.asFloatBuffer().get(out)
         return out
+    }
+
+    private fun cropFaceBitmap(source: Bitmap, box: Rect): Bitmap {
+        if (box.isEmpty) return source
+
+        val width = box.width().coerceAtLeast(1)
+        val height = box.height().coerceAtLeast(1)
+
+        val expandW = (width * FACE_CROP_EXPAND_RATIO).toInt()
+        val expandH = (height * FACE_CROP_EXPAND_RATIO).toInt()
+
+        val left = (box.left - expandW).coerceAtLeast(0)
+        val top = (box.top - expandH).coerceAtLeast(0)
+        val right = (box.right + expandW).coerceAtMost(source.width)
+        val bottom = (box.bottom + expandH).coerceAtMost(source.height)
+
+        val cropW = (right - left).coerceAtLeast(1)
+        val cropH = (bottom - top).coerceAtLeast(1)
+
+        return try {
+            Bitmap.createBitmap(source, left, top, cropW, cropH)
+        } catch (_: IllegalArgumentException) {
+            source
+        }
     }
 }

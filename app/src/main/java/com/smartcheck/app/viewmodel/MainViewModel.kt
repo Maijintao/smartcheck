@@ -266,6 +266,14 @@ class MainViewModel @Inject constructor(
                             if (result != null && result.userId != null) {
                                 lastRecognizedUserId = result.userId
                                 onFaceRecognized(result.userId, result.userName ?: "未知用户", result.confidence)
+                            } else if (result != null) {
+                                _uiState.update {
+                                    it.copy(
+                                        currentUserId = null,
+                                        currentUserName = "陌生人",
+                                        faceConfidence = result.confidence
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -276,7 +284,14 @@ class MainViewModel @Inject constructor(
                         lastTrackingId = currentTrackingId
                         stableFramesCount = 1
                         lastRecognizedUserId = null
-                        _uiState.update { it.copy(message = "请正视摄像头") }
+                        _uiState.update {
+                            it.copy(
+                                message = "请正视摄像头",
+                                currentUserId = null,
+                                currentUserName = "",
+                                faceConfidence = 0f
+                            )
+                        }
                     }
                 } else {
                     // 没检测到人脸，重置跟踪状态
@@ -287,7 +302,14 @@ class MainViewModel @Inject constructor(
                     lastTrackingId = -1
                     stableFramesCount = 0
                     lastRecognizedUserId = null
-                    _uiState.update { it.copy(message = "请正视摄像头") }
+                    _uiState.update {
+                        it.copy(
+                            message = "请正视摄像头",
+                            currentUserId = null,
+                            currentUserName = "",
+                            faceConfidence = 0f
+                        )
+                    }
                 }
                 
             } catch (e: CancellationException) {
