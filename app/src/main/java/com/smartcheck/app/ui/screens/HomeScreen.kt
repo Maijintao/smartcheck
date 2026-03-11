@@ -696,6 +696,44 @@ fun HomeScreen(
     }
 
     androidx.compose.animation.AnimatedContent(
+        targetState = uiState.showDuplicateCheckDialog,
+        transitionSpec = { androidx.compose.animation.fadeIn(tween(200)) with androidx.compose.animation.fadeOut(tween(200)) },
+        label = "DuplicateCheckDialog"
+    ) { visible ->
+        if (visible) {
+            AlertDialog(
+                onDismissRequest = { },
+                title = {
+                    Text(text = "今日已晨检", color = BrandGreen, fontSize = Dimens.TextSizeLarge)
+                },
+                text = {
+                    Text(
+                        text = "是否继续晨检",
+                        fontSize = Dimens.TextSizeNormal
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.continueDuplicateMorningCheck() },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                    ) {
+                        Text(text = "继续晨检", fontSize = Dimens.TextSizeNormal, color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.cancelDuplicateMorningCheck() }) {
+                        Text(
+                            text = "取消",
+                            fontSize = Dimens.TextSizeNormal,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    androidx.compose.animation.AnimatedContent(
         targetState = showSuccessOverlay,
         transitionSpec = { androidx.compose.animation.fadeIn(tween(220)) with androidx.compose.animation.fadeOut(tween(220)) },
         label = "SuccessOverlay"

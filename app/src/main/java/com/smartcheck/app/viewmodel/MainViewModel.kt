@@ -370,7 +370,8 @@ class MainViewModel @Inject constructor(
                 healthCertDaysRemaining = result.healthCertDaysRemaining,
                 faceConfidence = result.faceConfidence,
                 message = result.message,
-                faceImagePath = result.userFaceImagePath
+                faceImagePath = result.userFaceImagePath,
+                showDuplicateCheckDialog = false
             )
         }
 
@@ -382,6 +383,52 @@ class MainViewModel @Inject constructor(
             scheduleReset(5000)
             return
         }
+
+        val todayRecordResult = morningCheckUseCase.checkTodayRecord(userId)
+        if (todayRecordResult.isFailure) {
+            Timber.tag("MainViewModel").w(
+                todayRecordResult.exceptionOrNull(),
+                "Failed to check today's record, continue normal flow"
+            )
+        }
+        if (todayRecordResult.getOrNull() != null) {
+            morningCheckUseCase.speakAlreadyCheckedToday()
+            _uiState.update {
+                it.copy(
+                    showDuplicateCheckDialog = true,
+                    message = "今日已晨检，是否继续晨检？"
+                )
+            }
+            return
+        }
+
+        morningCheckUseCase.speakSuccess()
+        continueMorningCheckFlow()
+    }
+
+    fun continueDuplicateMorningCheck() {
+        val state = _uiState.value
+        if (!state.showDuplicateCheckDialog || state.state != CheckState.FACE_PASS) return
+
+        _uiState.update {
+            it.copy(
+                showDuplicateCheckDialog = false,
+                message = "准备开始晨检..."
+            )
+        }
+
+        viewModelScope.launch {
+            continueMorningCheckFlow()
+        }
+    }
+
+    fun cancelDuplicateMorningCheck() {
+        if (!_uiState.value.showDuplicateCheckDialog) return
+        reset()
+    }
+
+    private suspend fun continueMorningCheckFlow() {
+        if (_uiState.value.state == CheckState.IDLE) return
 
         faceSaveJob?.cancel()
         faceSaveJob = viewModelScope.launch(Dispatchers.IO) {

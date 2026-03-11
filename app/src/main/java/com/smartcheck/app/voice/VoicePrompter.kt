@@ -28,6 +28,8 @@ class VoicePrompter @Inject constructor(
     private val pending = ArrayDeque<String>()
     private val enabledRef = AtomicReference(true)
     private val promptFiles = linkedMapOf(
+        "欢迎" to "welcome.wav",
+        "今日已晨检" to "already_checked_today.wav",
         "请将人脸对准摄像头" to "face_guide.wav",
         "正在测温" to "temp_measuring.wav",
         "人脸未录入" to "face_not_enrolled.wav",

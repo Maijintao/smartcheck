@@ -295,10 +295,6 @@ class MorningCheckUseCase @Inject constructor(
             speakHealthCertWarning()
         }
 
-        if (isAllowedToContinue) {
-            speakSuccess(userName)
-        }
-
         return FaceRecognizedResult(
             userId = userId,
             userName = userName,
@@ -324,8 +320,12 @@ class MorningCheckUseCase @Inject constructor(
         voiceService.speak(text)
     }
 
-    fun speakSuccess(userName: String) {
-        voiceService.speak("欢迎，$userName")
+    fun speakSuccess() {
+        voiceService.speak("欢迎")
+    }
+
+    fun speakAlreadyCheckedToday() {
+        voiceService.speak("今日已晨检")
     }
 
     fun speakHealthCertWarning() {

@@ -52,6 +52,7 @@ data class UiState(
     val isRecordFinalized: Boolean = false,
     val symptomFlags: String = "",
     val handHasIssue: Boolean = false,
+    val showDuplicateCheckDialog: Boolean = false,
     
     // 检测结果详情
     val faceConfidence: Float = 0.0f,

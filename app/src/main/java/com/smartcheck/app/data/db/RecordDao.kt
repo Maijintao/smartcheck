@@ -18,6 +18,9 @@ interface RecordDao {
     @Query("SELECT * FROM check_records WHERE checkTime >= :startTime AND checkTime <= :endTime ORDER BY checkTime DESC")
     suspend fun getRecordsByTimeRangeSync(startTime: Long, endTime: Long): List<RecordEntity>
 
+    @Query("SELECT * FROM check_records WHERE userId = :userId AND checkTime >= :todayStart ORDER BY checkTime DESC LIMIT 1")
+    suspend fun getLatestTodayRecordByUser(userId: Long, todayStart: Long): RecordEntity?
+
     @Query("SELECT * FROM check_records WHERE id > :lastId ORDER BY id ASC LIMIT :limit")
     suspend fun getRecordsAfterId(lastId: Long, limit: Int): List<RecordEntity>
     

@@ -71,12 +71,7 @@ class RecordRepository @Inject constructor(
             calendar.set(Calendar.MILLISECOND, 0)
             val todayStart = calendar.timeInMillis
 
-            val records = recordDao.getRecordsByUser(userId)
-            var todayRecord: RecordEntity? = null
-            records.collect { entities ->
-                todayRecord = entities.firstOrNull { it.checkTime >= todayStart }
-            }
-
+            val todayRecord = recordDao.getLatestTodayRecordByUser(userId, todayStart)
             Result.success(todayRecord?.toDomain())
         } catch (e: Exception) {
             Result.failure(AppError.UnknownError(e.message ?: "getTodayRecordByUser failed"))
