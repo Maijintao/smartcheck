@@ -1,17 +1,21 @@
 package com.smartcheck.app.ui.screens
 
 import android.app.DatePickerDialog
+import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,14 +23,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,16 +44,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.ui.components.CameraCaptureDialog
-import com.smartcheck.app.ui.theme.BrandGreen
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.EmployeeDetailViewModel
 import java.time.LocalDate
@@ -121,35 +132,110 @@ fun EmployeeDetailScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = Dimens.PaddingLarge),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    val primaryBlue = Color(0xFF2563EB)
+    val primaryLight = Color(0xFFEFF6FF)
+    val bgMain = Color(0xFFF8FAFC)
+    val inputBg = Color(0xFFF1F5F9)
+    val textMain = Color(0xFF1E293B)
+    val textMuted = Color(0xFF64748B)
+    val borderColor = Color(0xFFE2E8F0)
+    val danger = Color(0xFFEF4444)
+
+    Column(modifier = Modifier.fillMaxSize().background(bgMain)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            shadowElevation = 2.dp
         ) {
-            Text(
-                text = if (user == null) "新增员工" else "编辑员工",
-                color = BrandGreen,
-                fontSize = Dimens.TextSizeTitle,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp, vertical = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(inputBg)
+                        .clickable(onClick = onNavigateBack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "返回",
+                        tint = textMain
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = if (user == null) "新增员工" else "编辑员工",
+                    color = textMain,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
 
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = Dimens.PaddingLarge)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            FormRow(label = "姓名 *") {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(32.dp)
+                    .padding(bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                if (errorMessage != null) {
+                    Surface(color = Color(0xFFFFF1F2), shape = RoundedCornerShape(12.dp)) {
+                        Text(
+                            text = errorMessage!!,
+                            color = danger,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Badge,
+                                    contentDescription = null,
+                                    tint = primaryBlue,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "员工基本信息",
+                                    color = textMain,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(borderColor)
+                            )
+
+                            FormRow(label = "姓名 *") {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -197,72 +283,67 @@ fun EmployeeDetailScreen(
                     singleLine = true
                 )
             }
-            FormRow(label = "人脸 *") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .background(Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
-                            .clickable { showFaceCamera = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val face = faceBitmap
-                        if (face != null) {
-                            Image(
-                                bitmap = face.asImageBitmap(),
-                                contentDescription = "人脸",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "拍摄人脸",
-                                tint = Color.Gray
-                            )
                         }
                     }
-                    Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-                    Text(
-                        text = "备注：调取人脸摄像头拍摄",
-                        fontSize = Dimens.TextSizeSmall,
-                        color = Color(0xFF6B7280)
-                    )
-                }
-            }
-            FormRow(label = "健康证 *") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .width(200.dp)
-                            .height(120.dp)
-                            .background(Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
-                            .clickable { showCertCamera = true },
-                        contentAlignment = Alignment.Center
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
-                        val cert = certBitmap
-                        if (cert != null) {
-                            Image(
-                                bitmap = cert.asImageBitmap(),
-                                contentDescription = "健康证",
-                                modifier = Modifier.fillMaxSize()
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = primaryBlue,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "特征与资质录入",
+                                    color = textMain,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(borderColor)
                             )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "拍摄健康证",
-                                tint = Color.Gray
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-                    Text(
-                        text = "备注：调取手部摄像头拍摄",
-                        fontSize = Dimens.TextSizeSmall,
-                        color = Color(0xFF6B7280)
-                    )
-                }
-            }
-            FormRow(label = "起始日期 *") {
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                CaptureBox(
+                                    title = "录入人脸 *",
+                                    subtitle = "点击调用摄像头",
+                                    bitmap = faceBitmap,
+                                    onClick = { showFaceCamera = true },
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    inputBg = inputBg,
+                                    borderColor = Color(0xFFCBD5E1),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                CaptureBox(
+                                    title = "健康证拍照 *",
+                                    subtitle = "拍摄实体证件",
+                                    bitmap = certBitmap,
+                                    onClick = { showCertCamera = true },
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    inputBg = inputBg,
+                                    borderColor = Color(0xFFCBD5E1),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            FormRow(label = "健康证起始日期 *") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -278,7 +359,7 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
-            FormRow(label = "到期日期 *") {
+            FormRow(label = "健康证到期日期 *") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -294,88 +375,92 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
+                        }
+                    }
+                }
+            }
         }
 
-        if (errorMessage != null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White.copy(alpha = 0.92f),
+            shadowElevation = 8.dp
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFFFEBEE))
-                    .padding(horizontal = Dimens.PaddingLarge, vertical = Dimens.PaddingNormal),
+                    .padding(horizontal = 32.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "⚠ ${errorMessage!!}",
-                    color = Color(0xFFD32F2F),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .padding(horizontal = Dimens.PaddingLarge),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (user != null) {
                 Button(
-                    onClick = { viewModel.deleteUser() },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    onClick = onNavigateBack,
+                    colors = ButtonDefaults.buttonColors(containerColor = inputBg)
                 ) {
-                    Text(text = "删除员工")
+                    Text(text = "取消", color = textMain)
                 }
-                Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-            }
-            Button(
-                onClick = {
-                    // 验证必填项
-                    val missing = mutableListOf<String>()
-                    if (name.isBlank()) missing.add("姓名")
-                    if (employeeId.isBlank()) missing.add("编号")
-                    if (faceBitmap == null) missing.add("人脸照片")
-                    if (certBitmap == null && healthCertImagePath.isBlank()) missing.add("健康证照片")
-                    if (certStart == null) missing.add("健康证起始日期")
-                    if (certEnd == null) missing.add("健康证到期日期")
-                    
-                    if (missing.isNotEmpty()) {
-                        errorMessage = "请填写必填项：${missing.joinToString("、")}"
-                        return@Button
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                if (user != null) {
+                    Button(
+                        onClick = { viewModel.deleteUser() },
+                        colors = ButtonDefaults.buttonColors(containerColor = danger)
+                    ) {
+                        Text(text = "删除员工", color = Color.White)
                     }
-                    errorMessage = null
-                    
-                    if (user == null) {
-                        viewModel.saveEmployee(
-                            name = name,
-                            employeeId = employeeId,
-                            idCardNumber = idCard,
-                            phone = phone,
-                            position = position,
-                            department = department,
-                            healthCertStartDate = certStart?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
-                            healthCertEndDate = certEnd?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
-                            onSuccess = onNavigateBack
-                        )
-                    } else {
-                        viewModel.updateUser(
-                            name = name,
-                            employeeId = employeeId,
-                            idCardNumber = idCard,
-                            phone = phone,
-                            position = position,
-                            department = department,
-                            healthCertImagePath = healthCertImagePath,
-                            healthCertStartDate = certStart?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
-                            healthCertEndDate = certEnd?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
-                        )
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-            ) {
-                Text(text = "提交", color = Color.White)
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+
+                Button(
+                    onClick = {
+                        val missing = mutableListOf<String>()
+                        if (name.isBlank()) missing.add("姓名")
+                        if (employeeId.isBlank()) missing.add("编号")
+                        if (faceBitmap == null) missing.add("人脸照片")
+                        if (certBitmap == null && healthCertImagePath.isBlank()) missing.add("健康证照片")
+                        if (certStart == null) missing.add("健康证起始日期")
+                        if (certEnd == null) missing.add("健康证到期日期")
+
+                        if (missing.isNotEmpty()) {
+                            errorMessage = "请填写必填项：${missing.joinToString("、")}"
+                            return@Button
+                        }
+                        errorMessage = null
+
+                        if (user == null) {
+                            viewModel.saveEmployee(
+                                name = name,
+                                employeeId = employeeId,
+                                idCardNumber = idCard,
+                                phone = phone,
+                                position = position,
+                                department = department,
+                                healthCertStartDate = certStart?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
+                                healthCertEndDate = certEnd?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
+                                onSuccess = onNavigateBack
+                            )
+                        } else {
+                            viewModel.updateUser(
+                                name = name,
+                                employeeId = employeeId,
+                                idCardNumber = idCard,
+                                phone = phone,
+                                position = position,
+                                department = department,
+                                healthCertImagePath = healthCertImagePath,
+                                healthCertStartDate = certStart?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli(),
+                                healthCertEndDate = certEnd?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
+                ) {
+                    Text(
+                        text = if (user == null) "保存并提交" else "保存修改",
+                        color = Color.White
+                    )
+                }
             }
         }
     }
@@ -405,17 +490,136 @@ fun EmployeeDetailScreen(
 
 @Composable
 private fun FormRow(label: String, content: @Composable () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
-            modifier = Modifier.width(120.dp),
-            textAlign = TextAlign.End,
-            color = Color.Black,
-            fontSize = Dimens.TextSizeNormal
+            color = Color(0xFF64748B),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
-        Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-        Box(modifier = Modifier.weight(1f)) {
-            content()
+        Spacer(modifier = Modifier.height(8.dp))
+        content()
+    }
+}
+
+@Composable
+private fun CaptureBox(
+    title: String,
+    subtitle: String,
+    bitmap: Bitmap?,
+    onClick: () -> Unit,
+    primaryBlue: Color,
+    primaryLight: Color,
+    inputBg: Color,
+    borderColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val isFace = title.contains("人脸")
+
+    Column(modifier = modifier) {
+        Text(
+            text = title,
+            color = Color(0xFF64748B),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 180.dp)
+                .clip(shape)
+                .background(inputBg)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val stroke = Stroke(
+                    width = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(
+                        floatArrayOf(10.dp.toPx(), 6.dp.toPx())
+                    )
+                )
+
+                drawRoundRect(
+                    color = borderColor,
+                    style = stroke,
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+
+                if (isFace) {
+                    val inset = 15.dp.toPx()
+                    val corner = 20.dp.toPx()
+                    val w = size.width
+                    val h = size.height
+                    val cStroke = Stroke(width = 2.dp.toPx())
+
+                    drawLine(
+                        color = primaryBlue,
+                        start = androidx.compose.ui.geometry.Offset(inset, inset),
+                        end = androidx.compose.ui.geometry.Offset(inset + corner, inset),
+                        strokeWidth = cStroke.width
+                    )
+                    drawLine(
+                        color = primaryBlue,
+                        start = androidx.compose.ui.geometry.Offset(inset, inset),
+                        end = androidx.compose.ui.geometry.Offset(inset, inset + corner),
+                        strokeWidth = cStroke.width
+                    )
+
+                    drawLine(
+                        color = primaryBlue,
+                        start = androidx.compose.ui.geometry.Offset(w - inset, h - inset),
+                        end = androidx.compose.ui.geometry.Offset(w - inset - corner, h - inset),
+                        strokeWidth = cStroke.width
+                    )
+                    drawLine(
+                        color = primaryBlue,
+                        start = androidx.compose.ui.geometry.Offset(w - inset, h - inset),
+                        end = androidx.compose.ui.geometry.Offset(w - inset, h - inset - corner),
+                        strokeWidth = cStroke.width
+                    )
+                }
+            }
+
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            tint = primaryBlue
+                        )
+                    }
+                    Text(
+                        text = subtitle,
+                        fontSize = 13.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
         }
     }
 }
