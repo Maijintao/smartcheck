@@ -28,6 +28,7 @@ import com.smartcheck.app.ml.FaceEngine
 import com.smartcheck.app.ml.SeetaFaceEngine
 import com.smartcheck.sdk.face.FaceSdk
 import com.smartcheck.sdk.HandDetector
+import com.smartcheck.sdk.HandInfo
 import com.smartcheck.app.utils.DeviceInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -45,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.math.ceil
+import kotlin.math.hypot
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -102,6 +104,9 @@ class MainViewModel @Inject constructor(
     private var handStepStartAt = 0L
     private var handCooldownJob: Job? = null
     private var autoSubmitJob: Job? = null
+    private var lastHandGuideVoiceAt: Long = 0L
+    private var lastHandGuideVoiceText: String = ""
+    private var palmPoseSignature: Pair<Float, Float>? = null
 
     private var currentFacePath: String? = null
     private var currentPalmPath: String? = null
@@ -126,6 +131,20 @@ class MainViewModel @Inject constructor(
 
     private val minFreeBytes = 200L * 1024L * 1024L
     private val faceGuideText = "请将人脸对准摄像头"
+    private val handGuideVoiceIntervalMs = 2200L
+    private val handPoseThreshold = 0.12f
+
+    private enum class HandSurface {
+        PALM,
+        BACK,
+        UNKNOWN
+    }
+
+    private data class DualHandPose(
+        val leftSign: Float,
+        val rightSign: Float,
+        val surface: HandSurface
+    )
 
     private val isRockchip: Boolean = run {
         val hardware = Build.HARDWARE.lowercase()
@@ -728,6 +747,7 @@ class MainViewModel @Inject constructor(
     private fun startHandPalmCheck() {
         handOkFrames = 0
         handStepStartAt = System.currentTimeMillis()
+        palmPoseSignature = null
         _handDetectionState.value = emptyList()
         currentPalmPath = null
         currentBackPath = null
@@ -794,6 +814,34 @@ class MainViewModel @Inject constructor(
                     return@launch
                 }
 
+                if (results.size < 2) {
+                    handOkFrames = 0
+                    val tipMessage = if (state == CheckState.HAND_PALM_CHECKING) {
+                        "请同时伸出双手进行手心检测"
+                    } else {
+                        "请同时伸出双手进行手背检测"
+                    }
+                    promptHandGuide(tipMessage, "请同时伸出双手")
+                    return@launch
+                }
+
+                val handPose = analyzeDualHandPose(results)
+                if (handPose == null || !isExpectedSurface(state, handPose)) {
+                    handOkFrames = 0
+                    if (state == CheckState.HAND_PALM_CHECKING) {
+                        promptHandGuide(
+                            message = "请将手心朝向摄像头并保持双手",
+                            voice = "请将手心朝向摄像头"
+                        )
+                    } else {
+                        promptHandGuide(
+                            message = "请翻转为手背并保持双手",
+                            voice = "请翻转为手背后继续检测"
+                        )
+                    }
+                    return@launch
+                }
+
                 val hasForeignObject = results.any { it.hasForeignObject }
                 val hasIssueSoFar = hasForeignObject || _uiState.value.handHasIssue
                 if (hasIssueSoFar) {
@@ -832,6 +880,7 @@ class MainViewModel @Inject constructor(
                 handOkFrames++
                 if (handOkFrames >= 3) {
                     if (state == CheckState.HAND_PALM_CHECKING) {
+                        palmPoseSignature = handPose.leftSign to handPose.rightSign
                         captureHandPalmAndCooldown(frame, results)
                     } else {
                         val issues = _uiState.value.handDetectionResults
@@ -847,6 +896,81 @@ class MainViewModel @Inject constructor(
                 frame.safeRecycle()
             }
         }
+    }
+
+    private fun analyzeDualHandPose(results: List<HandInfo>): DualHandPose? {
+        if (results.size < 2) return null
+        val ordered = results
+            .sortedBy { (it.box.left + it.box.right) * 0.5f }
+            .take(2)
+
+        val leftSign = normalizedHandSign(ordered[0]) ?: return null
+        val rightSign = normalizedHandSign(ordered[1]) ?: return null
+
+        val surface = when {
+            leftSign <= -handPoseThreshold && rightSign >= handPoseThreshold -> HandSurface.BACK
+            leftSign >= handPoseThreshold && rightSign <= -handPoseThreshold -> HandSurface.PALM
+            else -> HandSurface.UNKNOWN
+        }
+        return DualHandPose(leftSign = leftSign, rightSign = rightSign, surface = surface)
+    }
+
+    private fun normalizedHandSign(hand: HandInfo): Float? {
+        if (hand.keyPoints.size <= 17) return null
+
+        val wrist = hand.keyPoints[0]
+        val indexMcp = hand.keyPoints[5]
+        val pinkyMcp = hand.keyPoints[17]
+
+        val v1x = indexMcp.x - wrist.x
+        val v1y = indexMcp.y - wrist.y
+        val v2x = pinkyMcp.x - wrist.x
+        val v2y = pinkyMcp.y - wrist.y
+
+        val cross = v1x * v2y - v1y * v2x
+        val norm = hypot(v1x.toDouble(), v1y.toDouble()) * hypot(v2x.toDouble(), v2y.toDouble())
+        if (norm < 1e-3) return null
+
+        return (cross / norm).toFloat()
+    }
+
+    private fun isExpectedSurface(state: CheckState, pose: DualHandPose): Boolean {
+        return when (state) {
+            CheckState.HAND_PALM_CHECKING -> pose.surface == HandSurface.PALM
+            CheckState.HAND_BACK_CHECKING -> {
+                if (pose.surface == HandSurface.BACK) {
+                    true
+                } else {
+                    val palmSignature = palmPoseSignature
+                    if (palmSignature == null) {
+                        false
+                    } else {
+                        val leftFlipped = palmSignature.first * pose.leftSign < -handPoseThreshold
+                        val rightFlipped = palmSignature.second * pose.rightSign < -handPoseThreshold
+                        leftFlipped && rightFlipped
+                    }
+                }
+            }
+            else -> true
+        }
+    }
+
+    private fun promptHandGuide(message: String, voice: String) {
+        val state = _uiState.value
+        if (state.message != message) {
+            _uiState.update { it.copy(message = message) }
+        }
+        speakHandGuideThrottled(voice)
+    }
+
+    private fun speakHandGuideThrottled(text: String) {
+        val now = System.currentTimeMillis()
+        val canSpeak = text != lastHandGuideVoiceText || (now - lastHandGuideVoiceAt) >= handGuideVoiceIntervalMs
+        if (!canSpeak) return
+
+        lastHandGuideVoiceText = text
+        lastHandGuideVoiceAt = now
+        voiceService.speak(text)
     }
     
     /**

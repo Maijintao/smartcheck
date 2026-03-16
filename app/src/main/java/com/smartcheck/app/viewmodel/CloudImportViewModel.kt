@@ -66,6 +66,11 @@ class CloudImportViewModel @Inject constructor(
         val pageIndex: Int = 0,
         val pageSize: String = "",
         val isLoading: Boolean = false,
+        val syncDialogVisible: Boolean = false,
+        val syncTitle: String = "",
+        val syncMessage: String = "",
+        val syncCurrent: Int = 0,
+        val syncTotal: Int = 0,
         val employees: List<CloudEmployeeItem> = emptyList(),
         val total: Int = 0,
         val error: String? = null,
@@ -116,85 +121,258 @@ class CloudImportViewModel @Inject constructor(
     fun fetchEmployees() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-
-            try {
-                val baseUrl = "http://api.qhk12.iyouxin.cn:50082"
-                val endpoint = "/wosapi/YGCJRobotOpenApi/PageStaff"
-
-                Timber.d("Fetching employees from: $baseUrl$endpoint, deviceSn=${_uiState.value.deviceSn}")
-
-                // 创建请求体
-                val requestBody = com.smartcheck.app.api.model.PageStaffRequest(
-                    pageIndex = _uiState.value.pageIndex,
-                    pageSize = getPageSizeInt(),
-                    ygSn = _uiState.value.deviceSn
-                )
-                val jsonBody = kotlinx.serialization.json.Json.encodeToString(com.smartcheck.app.api.model.PageStaffRequest.serializer(), requestBody)
-                Timber.d("Request JSON: $jsonBody")
-
-                val response = httpClient.post("$baseUrl$endpoint") {
-                    header("yg_sn", _uiState.value.deviceSn)
-                    contentType(ContentType.Application.Json)
-                    setBody(requestBody)
-                }
-
-                if (response.status.isSuccess()) {
-                    // 打印原始响应内容用于调试
-                    val rawBody: String = response.body()
-                    Timber.d("Raw response: $rawBody")
-                    
-                    // 检查错误响应
-                    if (rawBody.contains("\"IsSuccess\":false") || rawBody.contains("\"code\":500") || rawBody.contains("\"code\":405")) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "接口错误: $rawBody"
-                        )
-                        return@launch
-                    }
-                    
-                    val result = response.body<com.smartcheck.app.api.model.CloudStaffResponse>()
-                    
-                    if (result.isSuccess) {
-                        val employees = result.dataList.map { item ->
-                            CloudEmployeeItem(
-                                employeeId = item.thirdKey,
-                                name = item.personName,
-                                phone = item.phone,
-                                position = item.position,
-                                healthCertCode = item.hcCode,
-                                facePicUrl = item.faceToFacePicUrl,
-                                healthCertPicUrl = item.hcPicUrl,
-                                healthCertStartDate = item.hcStartTime,
-                                healthCertEndDate = item.hcEndTime
-                            )
-                        }
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            employees = employees,
-                            total = result.total,
-                            error = null
-                        )
-                        Timber.d("Fetched ${employees.size} employees, total: ${result.total}")
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = result.message.ifEmpty { "获取失败" }
-                        )
-                    }
-                } else {
+            fetchEmployeesFromCloud()
+                .onSuccess { (employees, total) ->
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "请求失败: ${response.status}"
+                        employees = employees,
+                        total = total,
+                        error = null
+                    )
+                    Timber.d("Fetched ${employees.size} employees, total: $total")
+                }
+                .onFailure { e ->
+                    Timber.e(e, "Failed to fetch employees")
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = e.message ?: "网络错误"
                     )
                 }
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to fetch employees")
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "网络错误: ${e.message}"
+        }
+    }
+
+    fun autoSyncBySn() {
+        val sn = _uiState.value.deviceSn.trim()
+        if (sn.isBlank()) return
+        if (_uiState.value.isLoading) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                syncDialogVisible = true,
+                syncTitle = "正在拉取员工数据",
+                syncMessage = "请稍候...",
+                syncCurrent = 0,
+                syncTotal = 0,
+                error = null,
+                importResult = null,
+                importSuccess = false
+            )
+
+            fetchEmployeesFromCloud()
+                .onSuccess { (employees, total) ->
+                    if (employees.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            syncDialogVisible = false,
+                            employees = emptyList(),
+                            total = total,
+                            error = "未查询到员工数据"
+                        )
+                        return@onSuccess
+                    }
+
+                    _uiState.value = _uiState.value.copy(
+                        employees = employees,
+                        total = total,
+                        syncTitle = "正在拉取人脸数据",
+                        syncMessage = "准备同步 ${employees.size} 人",
+                        syncCurrent = 0,
+                        syncTotal = employees.size
+                    )
+
+                    val (successCount, failedCount) = importEmployeesInternal(
+                        selectedEmployees = employees,
+                        onProgress = { index, all, employee ->
+                            val name = employee.name.ifBlank { employee.employeeId }
+                            _uiState.value = _uiState.value.copy(
+                                syncTitle = "正在拉取人脸数据",
+                                syncMessage = "正在同步 $name",
+                                syncCurrent = index,
+                                syncTotal = all
+                            )
+                        }
+                    )
+
+                    Timber.d("[CloudImport] Refreshing face cache after auto sync")
+                    faceEngine.refreshUserCache()
+
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        syncDialogVisible = false,
+                        importResult = ImportResult(
+                            total = employees.size,
+                            success = successCount,
+                            failed = failedCount,
+                            message = "同步完成"
+                        ),
+                        importSuccess = true
+                    )
+                }
+                .onFailure { e ->
+                    Timber.e(e, "Auto sync failed")
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        syncDialogVisible = false,
+                        error = e.message ?: "拉取失败"
+                    )
+                }
+        }
+    }
+
+    private suspend fun fetchEmployeesFromCloud(): Result<Pair<List<CloudEmployeeItem>, Int>> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = "http://api.qhk12.iyouxin.cn:50082"
+            val endpoint = "/wosapi/YGCJRobotOpenApi/PageStaff"
+
+            Timber.d("Fetching employees from: $baseUrl$endpoint, deviceSn=${_uiState.value.deviceSn}")
+
+            val requestBody = com.smartcheck.app.api.model.PageStaffRequest(
+                pageIndex = _uiState.value.pageIndex,
+                pageSize = getPageSizeInt(),
+                ygSn = _uiState.value.deviceSn
+            )
+            val jsonBody = kotlinx.serialization.json.Json.encodeToString(
+                com.smartcheck.app.api.model.PageStaffRequest.serializer(),
+                requestBody
+            )
+            Timber.d("Request JSON: $jsonBody")
+
+            val response = httpClient.post("$baseUrl$endpoint") {
+                header("yg_sn", _uiState.value.deviceSn)
+                contentType(ContentType.Application.Json)
+                setBody(requestBody)
+            }
+
+            if (!response.status.isSuccess()) {
+                return@withContext Result.failure(Exception("请求失败: ${response.status}"))
+            }
+
+            val rawBody: String = response.body()
+            Timber.d("Raw response: $rawBody")
+
+            if (rawBody.contains("\"IsSuccess\":false") || rawBody.contains("\"code\":500") || rawBody.contains("\"code\":405")) {
+                return@withContext Result.failure(Exception("接口错误: $rawBody"))
+            }
+
+            val result = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                .decodeFromString(com.smartcheck.app.api.model.CloudStaffResponse.serializer(), rawBody)
+
+            if (!result.isSuccess) {
+                return@withContext Result.failure(Exception(result.message.ifEmpty { "获取失败" }))
+            }
+
+            val employees = result.dataList.map { item ->
+                CloudEmployeeItem(
+                    employeeId = item.thirdKey,
+                    name = item.personName,
+                    phone = item.phone,
+                    position = item.position,
+                    healthCertCode = item.hcCode,
+                    facePicUrl = item.faceToFacePicUrl,
+                    healthCertPicUrl = item.hcPicUrl,
+                    healthCertStartDate = item.hcStartTime,
+                    healthCertEndDate = item.hcEndTime
                 )
             }
+
+            Result.success(employees to result.total)
+        } catch (e: Exception) {
+            Result.failure(Exception("网络错误: ${e.message}"))
         }
+    }
+
+    private suspend fun importEmployeesInternal(
+        selectedEmployees: List<CloudEmployeeItem>,
+        onProgress: ((index: Int, total: Int, employee: CloudEmployeeItem) -> Unit)? = null
+    ): Pair<Int, Int> {
+        var successCount = 0
+        var failedCount = 0
+        val total = selectedEmployees.size
+
+        for ((index, cloudEmp) in selectedEmployees.withIndex()) {
+            onProgress?.invoke(index + 1, total, cloudEmp)
+
+            try {
+                val existingUser = userRepository.getUserByEmployeeId(cloudEmp.employeeId).getOrNull()
+
+                val healthCertStartDate = parseDate(cloudEmp.healthCertStartDate)
+                val healthCertEndDate = parseDate(cloudEmp.healthCertEndDate)
+
+                var faceImageBase64: String? = null
+                if (cloudEmp.facePicUrl.isNotBlank()) {
+                    faceImageBase64 = downloadImageAsBase64(cloudEmp.facePicUrl)
+                }
+
+                var healthCertImageBase64: String? = null
+                if (cloudEmp.healthCertPicUrl.isNotBlank()) {
+                    healthCertImageBase64 = downloadImageAsBase64(cloudEmp.healthCertPicUrl)
+                }
+
+                if (existingUser != null) {
+                    var faceImagePath = existingUser.faceImagePath
+                    var faceEmbedding = existingUser.faceEmbedding
+
+                    if (faceImageBase64 != null) {
+                        val saveResult = saveFaceImageFromBase64(faceImageBase64, existingUser.employeeId)
+                        saveResult.onSuccess { (path, embedding) ->
+                            faceImagePath = path
+                            faceEmbedding = embedding
+                        }
+                    }
+
+                    val updatedUser = existingUser.copy(
+                        name = cloudEmp.name,
+                        phone = cloudEmp.phone,
+                        position = cloudEmp.position,
+                        healthCertCode = cloudEmp.healthCertCode,
+                        healthCertStartDate = healthCertStartDate,
+                        healthCertEndDate = healthCertEndDate,
+                        faceImagePath = faceImagePath,
+                        faceEmbedding = faceEmbedding
+                    )
+                    userRepository.updateUser(updatedUser)
+                } else {
+                    val newUser = User(
+                        name = cloudEmp.name,
+                        employeeId = cloudEmp.employeeId,
+                        phone = cloudEmp.phone,
+                        position = cloudEmp.position,
+                        healthCertCode = cloudEmp.healthCertCode,
+                        healthCertStartDate = healthCertStartDate,
+                        healthCertEndDate = healthCertEndDate,
+                        isActive = true
+                    )
+                    val userId = userRepository.createUser(newUser).getOrNull()
+
+                    var finalFaceImagePath = ""
+                    var finalFaceEmbedding: ByteArray? = null
+
+                    if (userId != null && faceImageBase64 != null) {
+                        val saveResult = saveFaceImageFromBase64(faceImageBase64, cloudEmp.employeeId)
+                        saveResult.onSuccess { (path, embedding) ->
+                            finalFaceImagePath = path
+                            finalFaceEmbedding = embedding
+                        }
+                    }
+
+                    if (userId != null && finalFaceImagePath.isNotEmpty()) {
+                        val updatedUser = newUser.copy(
+                            id = userId,
+                            faceImagePath = finalFaceImagePath,
+                            faceEmbedding = finalFaceEmbedding
+                        )
+                        userRepository.updateUser(updatedUser)
+                    }
+                }
+                successCount++
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to import employee: ${cloudEmp.employeeId}")
+                failedCount++
+            }
+        }
+
+        return successCount to failedCount
     }
 
     fun importSelectedEmployees() {
@@ -210,91 +388,7 @@ class CloudImportViewModel @Inject constructor(
                 return@launch
             }
 
-            var successCount = 0
-            var failedCount = 0
-
-            for (cloudEmp in selectedEmployees) {
-                try {
-                    val existingUser = userRepository.getUserByEmployeeId(cloudEmp.employeeId).getOrNull()
-                    
-                    val healthCertStartDate = parseDate(cloudEmp.healthCertStartDate)
-                    val healthCertEndDate = parseDate(cloudEmp.healthCertEndDate)
-
-                    var faceImageBase64: String? = null
-                    if (cloudEmp.facePicUrl.isNotBlank()) {
-                        faceImageBase64 = downloadImageAsBase64(cloudEmp.facePicUrl)
-                    }
-
-                    var healthCertImageBase64: String? = null
-                    if (cloudEmp.healthCertPicUrl.isNotBlank()) {
-                        healthCertImageBase64 = downloadImageAsBase64(cloudEmp.healthCertPicUrl)
-                    }
-
-                    if (existingUser != null) {
-                        var faceImagePath = existingUser.faceImagePath
-                        var faceEmbedding = existingUser.faceEmbedding
-                        
-                        // 如果有新的人脸图片，下载并提取特征
-                        if (faceImageBase64 != null) {
-                            val saveResult = saveFaceImageFromBase64(faceImageBase64, existingUser.employeeId)
-                            saveResult.onSuccess { (path, embedding) ->
-                                faceImagePath = path
-                                faceEmbedding = embedding
-                            }
-                        }
-                        
-                        val updatedUser = existingUser.copy(
-                            name = cloudEmp.name,
-                            phone = cloudEmp.phone,
-                            position = cloudEmp.position,
-                            healthCertCode = cloudEmp.healthCertCode,
-                            healthCertStartDate = healthCertStartDate,
-                            healthCertEndDate = healthCertEndDate,
-                            faceImagePath = faceImagePath,
-                            faceEmbedding = faceEmbedding
-                        )
-                        userRepository.updateUser(updatedUser)
-                    } else {
-                        // 先创建用户
-                        val newUser = User(
-                            name = cloudEmp.name,
-                            employeeId = cloudEmp.employeeId,
-                            phone = cloudEmp.phone,
-                            position = cloudEmp.position,
-                            healthCertCode = cloudEmp.healthCertCode,
-                            healthCertStartDate = healthCertStartDate,
-                            healthCertEndDate = healthCertEndDate,
-                            isActive = true
-                        )
-                        val userId = userRepository.createUser(newUser).getOrNull()
-                        
-                        // 如果有人脸图片，保存并提取特征
-                        var finalFaceImagePath = ""
-                        var finalFaceEmbedding: ByteArray? = null
-                        
-                        if (userId != null && faceImageBase64 != null) {
-                            val saveResult = saveFaceImageFromBase64(faceImageBase64, cloudEmp.employeeId)
-                            saveResult.onSuccess { (path, embedding) ->
-                                finalFaceImagePath = path
-                                finalFaceEmbedding = embedding
-                            }
-                        }
-                        
-                        if (userId != null && finalFaceImagePath.isNotEmpty()) {
-                            val updatedUser = newUser.copy(
-                                id = userId,
-                                faceImagePath = finalFaceImagePath,
-                                faceEmbedding = finalFaceEmbedding
-                            )
-                            userRepository.updateUser(updatedUser)
-                        }
-                    }
-                    successCount++
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to import employee: ${cloudEmp.employeeId}")
-                    failedCount++
-                }
-            }
+            val (successCount, failedCount) = importEmployeesInternal(selectedEmployees)
 
             // 刷新人脸特征缓存
             Timber.d("[CloudImport] Refreshing face cache after import")

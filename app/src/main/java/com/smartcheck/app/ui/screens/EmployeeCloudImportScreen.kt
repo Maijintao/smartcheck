@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
@@ -28,13 +30,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.CloudImportViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +47,7 @@ fun EmployeeCloudImportScreen(
     viewModel: CloudImportViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val focusManager = LocalFocusManager.current
 
     val displayedPageIndex = uiState.pageIndex + 1
     var pageIndexText by remember(uiState.pageIndex) {
@@ -158,6 +162,16 @@ fun EmployeeCloudImportScreen(
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("请输入绑定的云端设备编码 (yg_sn)", fontSize = 14.sp) },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Ascii,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.autoSyncBySn()
+                                }
+                            ),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.White,
                                 unfocusedContainerColor = inputBg,
@@ -248,27 +262,35 @@ fun EmployeeCloudImportScreen(
                         }
                     }
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Button(
-                            onClick = { viewModel.fetchEmployees() },
-                            enabled = uiState.deviceSn.isNotBlank() && !uiState.isLoading,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = primaryBlue,
-                                disabledContainerColor = Color(0xFF93C5FD)
-                            ),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
-                            shape = RoundedCornerShape(10.dp)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = primaryLight
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("获取员工信息", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = primaryBlue,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "输入 SN 后将自动拉取员工与人脸数据",
+                                fontSize = 13.sp,
+                                color = textMuted,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
             }
 
             // 加载状态
-            if (uiState.isLoading) {
+            if (uiState.isLoading && !uiState.syncDialogVisible) {
                 Box(
                     modifier = Modifier
                         .widthIn(max = 760.dp)
@@ -360,7 +382,7 @@ fun EmployeeCloudImportScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "配置参数并点击获取，同步数据将在此处显示",
+                                text = "填写 SN 后将自动拉取并显示同步数据",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Color(0xFF94A3B8)
@@ -438,6 +460,20 @@ fun EmployeeCloudImportScreen(
                     }
                 }
             }
+
+            if (uiState.syncDialogVisible) {
+                FaceSyncProgressDialog(
+                    title = uiState.syncTitle.ifBlank { "正在同步人脸" },
+                    message = uiState.syncMessage.ifBlank { "请稍候..." },
+                    current = uiState.syncCurrent,
+                    total = uiState.syncTotal,
+                    primaryBlue = primaryBlue,
+                    textMain = textMain,
+                    textMuted = textMuted,
+                    cardBg = cardBg,
+                    primaryLight = primaryLight
+                )
+            }
         }
 
         // 导入结果对话框
@@ -464,6 +500,102 @@ fun EmployeeCloudImportScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun FaceSyncProgressDialog(
+    title: String,
+    message: String,
+    current: Int,
+    total: Int,
+    primaryBlue: Color,
+    textMain: Color,
+    textMuted: Color,
+    cardBg: Color,
+    primaryLight: Color
+) {
+    val progress = if (total > 0) {
+        (current.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    Dialog(onDismissRequest = {}) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = cardBg,
+            tonalElevation = 8.dp,
+            shadowElevation = 12.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 300.dp, max = 360.dp)
+                    .padding(horizontal = 22.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(primaryLight),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDownload,
+                        contentDescription = null,
+                        tint = primaryBlue,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Text(
+                    text = title,
+                    color = textMain,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = message,
+                    color = textMuted,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (total > 0) {
+                    LinearProgressIndicator(
+                        progress = progress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(999.dp)),
+                        color = primaryBlue,
+                        trackColor = primaryLight
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "进度",
+                            color = textMuted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "$current / $total",
+                            color = textMain,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    CircularProgressIndicator(color = primaryBlue, strokeWidth = 3.dp)
+                }
+            }
         }
     }
 }
