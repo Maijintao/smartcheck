@@ -130,6 +130,19 @@ def set_admin_password(new_password: str):
             conn.commit()
 
 
+def get_master_activation_code() -> str:
+    v = (os.environ.get('SMARTCHECK_MASTER_CODE') or '').strip()
+    if v:
+        return v
+
+    with db_lock:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='master_activation_code'"
+            ).fetchone()
+    return (row["value"] if row else '').strip()
+
+
 # ────────────────────────────────────────────
 # multipart/form-data 解析（纯 stdlib）
 # ────────────────────────────────────────────
@@ -487,6 +500,12 @@ class Handler(BaseHTTPRequestHandler):
         print(f"\n{'='*50}")
         print(f"设备请求激活  激活码: {code}")
         print('='*50)
+
+        master_code = get_master_activation_code()
+        if master_code and code == master_code:
+            print("✓ 万能激活码激活成功!\n")
+            self._send_json({"code": 0, "message": "激活成功", "data": {"activated": True, "master": True}})
+            return
 
         with db_lock:
             with get_conn() as conn:
@@ -984,6 +1003,7 @@ if __name__ == '__main__':
     print(f'数据库      : {DB_PATH}')
     print(f'APK 目录    : {UPLOADS_DIR}')
     print(f'管理页面    : http://localhost:{port}/')
+    print(f'万能激活码  : {"已启用" if get_master_activation_code() else "未启用"}')
     print(f'激活接口    : POST http://localhost:{port}/api/device/activate')
     print(f'版本检查    : GET  http://localhost:{port}/api/app/version/latest')
     print(f'版本历史    : GET  http://localhost:{port}/api/app/version/history')
