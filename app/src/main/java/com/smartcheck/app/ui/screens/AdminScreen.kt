@@ -17,10 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +44,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.ui.components.RecordDetailDialog
-import com.smartcheck.app.ui.theme.BrandGreen
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.RecordsViewModel
 import com.smartcheck.app.viewmodel.RecordsViewModel.TimeFilter
@@ -90,10 +90,17 @@ fun AdminScreen(
     // 状态筛选选项
     val statusOptions = listOf("全部", "通过", "不合格")
 
+    val primaryBlue = Color(0xFF2563EB)
+    val bgMain = Color(0xFFF1F5F9)
+    val textMain = Color(0xFF1E293B)
+    val textMuted = Color(0xFF64748B)
+    val borderColor = Color(0xFFE2E8F0)
+    val success = Color(0xFF10B981)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(bgMain)
             .padding(Dimens.PaddingLarge)
     ) {
         Row(
@@ -101,20 +108,42 @@ fun AdminScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "晨检记录",
-                color = BrandGreen,
-                fontSize = Dimens.TextSizeTitle,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "返回",
-                    tint = BrandGreen
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White)
+                        .clickable(onClick = onNavigateBack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "返回",
+                        tint = textMain
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "晨检记录",
+                    color = textMain,
+                    fontSize = Dimens.TextSizeTitle,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
+
+            if (onNavigateExport != null) {
+                Button(
+                    onClick = onNavigateExport,
+                    colors = ButtonDefaults.buttonColors(containerColor = success),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(text = "导出记录报表", color = Color.White, fontSize = Dimens.TextSizeNormal)
+                }
+            }
         }
+
+        Divider(color = borderColor)
 
         Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
 
@@ -132,7 +161,7 @@ fun AdminScreen(
                     val isSelected = selectedTimeFilter == filter
                     Text(
                         text = label,
-                        color = if (isSelected) BrandGreen else Color.Gray,
+                        color = if (isSelected) primaryBlue else textMuted,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
                             .clickable { selectedTimeFilter = filter }
@@ -148,7 +177,7 @@ fun AdminScreen(
                     val isSelected = (option == "全部" && statusFilter.isEmpty()) || statusFilter == option
                     Text(
                         text = option,
-                        color = if (isSelected) BrandGreen else Color.Gray,
+                        color = if (isSelected) primaryBlue else textMuted,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
                             .clickable { 
@@ -216,22 +245,7 @@ fun AdminScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                onClick = { onNavigateExport?.invoke() },
-                modifier = Modifier
-                    .height(64.dp)
-                    .width(320.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-            ) {
-                Text(text = "导出当前晨检记录", color = Color.White, fontSize = Dimens.TextSizeNormal)
-            }
-        }
+        Spacer(modifier = Modifier.height(0.dp))
     }
 
     selectedRecord?.let { record ->

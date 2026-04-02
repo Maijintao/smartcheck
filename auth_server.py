@@ -20,11 +20,21 @@ import json
 import mimetypes
 import os
 import secrets
+import socket
 import sqlite3
 import threading
 import time
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler
+try:
+    from http.server import ThreadingHTTPServer
+except ImportError:
+    from http.server import HTTPServer
+    from socketserver import ThreadingMixIn
+
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+        allow_reuse_address = True
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +43,10 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 
 DEFAULT_PASSWORD = "admin888"   # 仅首次启动时使用；登录后请在管理页修改
 _SESSION_EXPIRE  = 12 * 3600   # 会话有效期：12 小时
+
+_SOCKET_TIMEOUT_SECONDS = 60
+_MAX_BODY_BYTES_DEFAULT = 1 * 1024 * 1024
+_MAX_BODY_BYTES_UPLOAD  = 200 * 1024 * 1024
 
 # 原有激活码（仅首次运行时写入数据库，后续以数据库为准）
 INITIAL_CODES = [
@@ -128,6 +142,19 @@ def set_admin_password(new_password: str):
                 "INSERT OR REPLACE INTO settings(key, value) VALUES('admin_pw_hash', ?)", (h,)
             )
             conn.commit()
+
+
+def get_master_activation_code() -> str:
+    v = (os.environ.get('SMARTCHECK_MASTER_CODE') or '').strip()
+    if v:
+        return v
+
+    with db_lock:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='master_activation_code'"
+            ).fetchone()
+    return (row["value"] if row else '').strip()
 
 
 # ────────────────────────────────────────────
@@ -256,6 +283,13 @@ def init_db():
 
 class Handler(BaseHTTPRequestHandler):
 
+    def setup(self):
+        super().setup()
+        try:
+            self.connection.settimeout(_SOCKET_TIMEOUT_SECONDS)
+        except Exception:
+            pass
+
     # ── GET ──────────────────────────────────
 
     def do_GET(self):
@@ -363,6 +397,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_login(self):
         body = self._read_body()
+        if body is None:
+            return
         params = parse_qs(body)
         password = params.get('password', [''])[0]
 
@@ -477,6 +513,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_activate(self):
         body = self._read_body()
+        if body is None:
+            return
         try:
             data = json.loads(body)
             code = data.get('activationCode', '').strip()
@@ -487,6 +525,12 @@ class Handler(BaseHTTPRequestHandler):
         print(f"\n{'='*50}")
         print(f"设备请求激活  激活码: {code}")
         print('='*50)
+
+        master_code = get_master_activation_code()
+        if master_code and code == master_code:
+            print("✓ 万能激活码激活成功!\n")
+            self._send_json({"code": 0, "message": "激活成功", "data": {"activated": True, "master": True}})
+            return
 
         with db_lock:
             with get_conn() as conn:
@@ -521,7 +565,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"code": 1, "message": "需要 multipart/form-data"}, status=400)
             return
 
-        body = self._read_body_bytes()
+        body = self._read_body_bytes(max_len=_MAX_BODY_BYTES_UPLOAD)
+        if body is None:
+            return
         fields = parse_multipart(content_type, body)
 
         apk_field = fields.get('apk_file')
@@ -572,6 +618,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _admin_change_password(self):
         body = self._read_body()
+        if body is None:
+            return
         params = parse_qs(body)
         old_pw  = params.get('old_password', [''])[0]
         new_pw  = params.get('new_password', [''])[0].strip()
@@ -596,6 +644,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _admin_add_codes(self):
         body = self._read_body()
+        if body is None:
+            return
         params = parse_qs(body)
         raw = params.get('codes', [''])[0]
         new_codes = [c.strip() for c in raw.replace(',', '\n').splitlines() if c.strip()]
@@ -618,6 +668,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _admin_delete_code(self):
         body = self._read_body()
+        if body is None:
+            return
         params = parse_qs(body)
         code = params.get('code', [''])[0].strip()
 
@@ -936,13 +988,30 @@ function doUpload() {{
 
     # ── 工具方法 ──────────────────────────────
 
-    def _read_body(self) -> str:
-        length = int(self.headers.get('Content-Length', 0))
-        return self.rfile.read(length).decode('utf-8')
+    def _read_body(self, max_len: int = _MAX_BODY_BYTES_DEFAULT):
+        raw = self._read_body_bytes(max_len=max_len)
+        if raw is None:
+            return None
+        return raw.decode('utf-8', errors='replace')
 
-    def _read_body_bytes(self) -> bytes:
-        length = int(self.headers.get('Content-Length', 0))
-        return self.rfile.read(length)
+    def _read_body_bytes(self, max_len: int = _MAX_BODY_BYTES_DEFAULT):
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except Exception:
+            length = 0
+
+        if length <= 0:
+            return b''
+
+        if length > max_len:
+            self.send_error(413, "Payload Too Large")
+            return None
+
+        try:
+            return self.rfile.read(length)
+        except socket.timeout:
+            self.send_error(408, "Request Timeout")
+            return None
 
     def _send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
@@ -976,7 +1045,7 @@ function doUpload() {{
 if __name__ == '__main__':
     init_db()
     port   = 8080
-    server = HTTPServer(('0.0.0.0', port), Handler)
+    server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
     print('\n' + '=' * 50)
     print('SmartCheck 激活 + 版本管理服务器')
     print('=' * 50)
@@ -984,6 +1053,7 @@ if __name__ == '__main__':
     print(f'数据库      : {DB_PATH}')
     print(f'APK 目录    : {UPLOADS_DIR}')
     print(f'管理页面    : http://localhost:{port}/')
+    print(f'万能激活码  : {"已启用" if get_master_activation_code() else "未启用"}')
     print(f'激活接口    : POST http://localhost:{port}/api/device/activate')
     print(f'版本检查    : GET  http://localhost:{port}/api/app/version/latest')
     print(f'版本历史    : GET  http://localhost:{port}/api/app/version/history')

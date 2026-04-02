@@ -4,7 +4,10 @@ import android.Manifest
 import android.graphics.Bitmap
 import androidx.camera.core.CameraSelector
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,13 +20,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
@@ -55,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -72,7 +79,6 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.smartcheck.app.ui.components.DualCameraPreview
 import com.smartcheck.app.ui.components.FaceOverlay
 import com.smartcheck.app.ui.components.HandOverlay
-import com.smartcheck.app.ui.theme.BrandGreen
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.CheckState
 import com.smartcheck.app.utils.FileUtil
@@ -250,11 +256,30 @@ fun HomeScreen(
         else -> uiState.message.ifBlank { "请将人脸对准摄像头" }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val primaryBlue = Color(0xFF3B82F6)
+    val primaryDark = Color(0xFF2563EB)
+    val bgDark = Color(0xFF0F172A)
+    val panelBg = Color.White
+    val panelBgAlt = Color(0xFFF8FAFC)
+    val textMain = Color(0xFF1E293B)
+    val textMuted = Color(0xFF64748B)
+    val borderColor = Color(0xFFE2E8F0)
+
+    val success = Color(0xFF10B981)
+    val successBg = Color(0xFFDCFCE7)
+    val warning = Color(0xFFF59E0B)
+    val danger = Color(0xFFEF4444)
+    val dangerBg = Color(0xFFFEE2E2)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgDark)
+    ) {
         Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
             Box(
                 modifier = Modifier
-                    .weight(0.65f)
+                    .weight(1.6f)
                     .fillMaxHeight()
                     .background(Color.Black)
             ) {
@@ -280,6 +305,20 @@ fun HomeScreen(
                     onCameraState = { state ->
                         cameraInitState = state
                     }
+                )
+
+                // 轻微暗角渐变（camera-feed 背景效果）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0xFF0F172A).copy(alpha = 0.35f)
+                                )
+                            )
+                        )
                 )
 
                 if (cameraInitState == com.smartcheck.app.ui.components.CameraInitState.Ready &&
@@ -320,6 +359,13 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(34.dp)
+                            )
+                            Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
                             Text(
                                 text = "相机初始化失败",
                                 color = Color.White,
@@ -342,6 +388,12 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = Color(0xFF3B82F6),
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(34.dp)
+                            )
+                            Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
                             Text(
                                 text = "正在初始化相机...",
                                 color = Color.White,
@@ -382,8 +434,18 @@ fun HomeScreen(
                                 color = Color.White
                             )
                             Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
-                            Button(onClick = { cameraPermissionState.launchPermissionRequest() }) {
-                                Text(text = "授予权限", fontSize = Dimens.TextSizeNormal)
+                            Button(
+                                onClick = { cameraPermissionState.launchPermissionRequest() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "授予权限", fontSize = Dimens.TextSizeNormal, color = Color.White)
                             }
                         }
                     }
@@ -392,129 +454,278 @@ fun HomeScreen(
 
             Column(
                 modifier = Modifier
-                    .weight(0.35f)
+                    .weight(1f)
                     .fillMaxHeight()
-                    .padding(Dimens.PaddingNormal)
+                    .background(panelBg)
             ) {
-            Row(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(panelBgAlt)
+                    .padding(horizontal = 24.dp, vertical = 22.dp)
+            ) {
                 val context = LocalContext.current
                 val faceFile = FileUtil.getRecordImageFile(context, uiState.faceImagePath)?.takeIf { it.exists() }
                 val faceModel = faceFile ?: faceSnapshot
-                if (faceModel != null) {
-                    AsyncImage(
-                        model = faceModel,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = rememberRipple(bounded = true)
-                            ) { viewModel.retakeFace() },
-                        contentScale = ContentScale.Crop,
-                        contentDescription = "头像"
-                    )
-                } else {
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFE5E7EB))
+                            .size(64.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(borderColor)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = rememberRipple(bounded = true)
                             ) { viewModel.retakeFace() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = Color.Gray,
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f).padding(start = 12.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Text(
-                        text = "姓名: ${uiState.currentUserName.ifBlank { "--" }}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp
-                    )
-                    val isHigh = uiState.currentTemp >= 37.3f && uiState.currentTemp > 0f
-                    Text(
-                        text = "体温: ${formatTemp(uiState.currentTemp)}",
-                        color = if (isHigh) Color.Red else BrandGreen
-                    )
-                    val days = uiState.healthCertDaysRemaining?.toString() ?: "--"
-                    Text(text = "健康证有效: ${days}天")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "手部检测", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(modifier = Modifier.width(8.dp))
-                val handStageLabel = when (uiState.state) {
-                    CheckState.HAND_PALM_CHECKING -> "当前：手心"
-                    CheckState.HAND_BACK_CHECKING -> "当前：手背"
-                    CheckState.AUTO_SUBMITTING, CheckState.ALL_PASS -> "已完成"
-                    else -> "待开始"
-                }
-                Text(text = handStageLabel, fontSize = Dimens.TextSizeSmall, color = Color(0xFF6B7280))
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                val context = LocalContext.current
-                val handThumbAspectRatio = 16f / 9f
-
-                Row(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(0.5f)
-                            .padding(end = 8.dp)
-                            .aspectRatio(handThumbAspectRatio)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = rememberRipple(bounded = true)
-                            ) { viewModel.retakeHandPalm() }
-                    ) {
-                        val palmFile = FileUtil.getRecordImageFile(context, uiState.handPalmPath)?.takeIf { it.exists() }
-                        val palmModel = palmFile ?: handFrontShot
-                        if (palmModel != null) {
+                        if (faceModel != null) {
                             AsyncImage(
-                                model = palmModel,
-                                contentDescription = "手心",
-                                contentScale = ContentScale.Fit,
+                                model = faceModel,
+                                contentDescription = "头像",
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
-                            PlaceholderHandTile(
-                                title = "手心",
-                                hint = if (uiState.state == CheckState.HAND_PALM_CHECKING) "请对准手心" else "等待拍摄",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        if (palmModel != null && uiState.handPalmInfos.isNotEmpty()) {
-                            val frameW = uiState.handPalmFrameWidth ?: lastFrameWidth
-                            val frameH = uiState.handPalmFrameHeight ?: lastFrameHeight
-                            HandResultOverlay(
-                                handInfos = uiState.handPalmInfos,
-                                frameWidth = frameW,
-                                frameHeight = frameH,
-                                modifier = Modifier.fillMaxSize()
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(36.dp)
                             )
                         }
                     }
-                    Box(modifier = Modifier.weight(0.5f), contentAlignment = Alignment.Center) {
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        val nameText = uiState.currentUserName.ifBlank { "陌生人" }
+                        val badgeText = if (uiState.currentUserId == null) "身份识别中..." else "已识别"
+
+                        Text(
+                            text = nameText,
+                            color = textMain,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(color = Color(0xFFF1F5F9), shape = RoundedCornerShape(6.dp)) {
+                            Text(
+                                text = badgeText,
+                                color = textMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(panelBg)
+                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val isReadingTemp = uiState.currentTemp == 0f || uiState.state == CheckState.TEMP_MEASURING
+                        val isHigh = uiState.currentTemp >= 37.3f && uiState.currentTemp > 0f
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "实时体温测定",
+                                color = textMuted,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            if (isReadingTemp) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = warning
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "读取中...",
+                                        color = warning,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = formatTemp(uiState.currentTemp),
+                                    color = if (isHigh) danger else success,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "健康证状态",
+                                color = textMuted,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            val days = uiState.healthCertDaysRemaining
+                            val certText = if (days == null) "暂无数据" else formatHealthCert(days)
+                            Text(
+                                text = certText,
+                                color = if (days != null && days < 0) danger else textMuted,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 18.dp)
+            ) {
+                Text(
+                    text = "手部卫生检测",
+                    color = textMain,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "请依次完成手心与手背检测",
+                    color = textMuted,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                val context = LocalContext.current
+                val handThumbAspectRatio = 16f / 9f
+
+                val palmActive = uiState.state == CheckState.HAND_PALM_CHECKING
+                val palmDone = uiState.handPalmPath != null
+                val palmStatusText = when {
+                    palmActive -> "进行中"
+                    palmDone -> "已完成"
+                    else -> "待开始"
+                }
+                val palmChipBg = when {
+                    palmActive -> primaryBlue.copy(alpha = 0.12f)
+                    palmDone -> successBg
+                    else -> Color(0xFFF1F5F9)
+                }
+                val palmChipText = when {
+                    palmActive -> primaryDark
+                    palmDone -> success
+                    else -> textMuted
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(panelBgAlt)
+                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "第一步：手心检测",
+                            color = textMain,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Surface(color = palmChipBg, shape = RoundedCornerShape(999.dp)) {
+                            Text(
+                                text = palmStatusText,
+                                color = palmChipText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = when {
+                            palmActive -> "请张开手掌，对准取景框"
+                            palmDone -> "可点击卡片重新拍摄"
+                            else -> "等待开始"
+                        },
+                        color = textMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(handThumbAspectRatio)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(borderColor)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = rememberRipple(bounded = true)
+                                ) { viewModel.retakeHandPalm() }
+                        ) {
+                            val palmFile = FileUtil.getRecordImageFile(context, uiState.handPalmPath)?.takeIf { it.exists() }
+                            val palmModel = palmFile ?: handFrontShot
+                            if (palmModel != null) {
+                                AsyncImage(
+                                    model = palmModel,
+                                    contentDescription = "手心",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                PlaceholderHandTile(
+                                    title = "手心",
+                                    hint = if (uiState.state == CheckState.HAND_PALM_CHECKING) "请对准手心" else "等待拍摄",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            if (palmModel != null && uiState.handPalmInfos.isNotEmpty()) {
+                                val frameW = uiState.handPalmFrameWidth ?: lastFrameWidth
+                                val frameH = uiState.handPalmFrameHeight ?: lastFrameHeight
+                                HandResultOverlay(
+                                    handInfos = uiState.handPalmInfos,
+                                    frameWidth = frameW,
+                                    frameHeight = frameH,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
                         val hasIssue = uiState.handPalmInfos.any { it.hasForeignObject }
                         val issueSummary = uiState.handPalmInfos.flatMap { info ->
                             if (info.foreignObjects.isNotEmpty()) {
@@ -531,68 +742,133 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.Error,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(28.dp)
+                                    tint = danger,
+                                    modifier = Modifier.size(26.dp)
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = issueSummary.ifBlank { "异常" },
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontSize = Dimens.TextSizeSmall
+                                    color = danger,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         } else {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = null,
-                                tint = BrandGreen,
-                                modifier = Modifier.size(32.dp)
+                                tint = success,
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val backActive = uiState.state == CheckState.HAND_BACK_CHECKING
+                val backDone = uiState.handBackPath != null
+                val backStatusText = when {
+                    backActive -> "进行中"
+                    backDone -> "已完成"
+                    else -> "待开始"
+                }
+                val backChipBg = when {
+                    backActive -> primaryBlue.copy(alpha = 0.12f)
+                    backDone -> successBg
+                    else -> Color(0xFFF1F5F9)
+                }
+                val backChipText = when {
+                    backActive -> primaryDark
+                    backDone -> success
+                    else -> textMuted
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(panelBgAlt)
+                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                        .padding(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(0.5f)
-                            .padding(end = 8.dp)
-                            .aspectRatio(handThumbAspectRatio)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = rememberRipple(bounded = true)
-                            ) { viewModel.retakeHandBack() }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val backFile = FileUtil.getRecordImageFile(context, uiState.handBackPath)?.takeIf { it.exists() }
-                        val backModel = backFile ?: handBackShot
-                        if (backModel != null) {
-                            AsyncImage(
-                                model = backModel,
-                                contentDescription = "手背",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            PlaceholderHandTile(
-                                title = "手背",
-                                hint = if (uiState.state == CheckState.HAND_BACK_CHECKING) "请对准手背" else "等待拍摄",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        if (backModel != null && uiState.handBackInfos.isNotEmpty()) {
-                            val frameW = uiState.handBackFrameWidth ?: lastFrameWidth
-                            val frameH = uiState.handBackFrameHeight ?: lastFrameHeight
-                            HandResultOverlay(
-                                handInfos = uiState.handBackInfos,
-                                frameWidth = frameW,
-                                frameHeight = frameH,
-                                modifier = Modifier.fillMaxSize()
+                        Text(
+                            text = "第二步：手背检测",
+                            color = textMain,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Surface(color = backChipBg, shape = RoundedCornerShape(999.dp)) {
+                            Text(
+                                text = backStatusText,
+                                color = backChipText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
-                    Box(modifier = Modifier.weight(0.5f), contentAlignment = Alignment.Center) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = when {
+                            backActive -> "请伸直手背，对准取景框"
+                            backDone -> "可点击卡片重新拍摄"
+                            else -> "等待开始"
+                        },
+                        color = textMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(handThumbAspectRatio)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(borderColor)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = rememberRipple(bounded = true)
+                                ) { viewModel.retakeHandBack() }
+                        ) {
+                            val backFile = FileUtil.getRecordImageFile(context, uiState.handBackPath)?.takeIf { it.exists() }
+                            val backModel = backFile ?: handBackShot
+                            if (backModel != null) {
+                                AsyncImage(
+                                    model = backModel,
+                                    contentDescription = "手背",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                PlaceholderHandTile(
+                                    title = "手背",
+                                    hint = if (uiState.state == CheckState.HAND_BACK_CHECKING) "请对准手背" else "等待拍摄",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            if (backModel != null && uiState.handBackInfos.isNotEmpty()) {
+                                val frameW = uiState.handBackFrameWidth ?: lastFrameWidth
+                                val frameH = uiState.handBackFrameHeight ?: lastFrameHeight
+                                HandResultOverlay(
+                                    handInfos = uiState.handBackInfos,
+                                    frameWidth = frameW,
+                                    frameHeight = frameH,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
                         val hasIssue = uiState.handBackInfos.any { it.hasForeignObject }
                         val issueSummary = uiState.handBackInfos.flatMap { info ->
                             if (info.foreignObjects.isNotEmpty()) {
@@ -609,34 +885,62 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.Error,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(28.dp)
+                                    tint = danger,
+                                    modifier = Modifier.size(26.dp)
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = issueSummary.ifBlank { "异常" },
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontSize = Dimens.TextSizeSmall
+                                    color = danger,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         } else {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = null,
-                                tint = BrandGreen,
-                                modifier = Modifier.size(32.dp)
+                                tint = success,
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }
                 }
             }
 
-            Button(
-                onClick = { viewModel.finalizeCheckRecord() },
-                enabled = !uiState.isSubmitting && uiState.state != CheckState.SYMPTOM_CHECKING && uiState.handPalmPath != null && uiState.handBackPath != null,
-                modifier = Modifier.fillMaxWidth().height(Dimens.ButtonHeight),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(borderColor)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 18.dp)
             ) {
-                Text("提交并上岗")
+                val canSubmit = uiState.state != CheckState.SYMPTOM_CHECKING && uiState.handPalmPath != null && uiState.handBackPath != null
+                val buttonText = when {
+                    uiState.isSubmitting -> "提交中..."
+                    canSubmit -> "提交并上岗"
+                    else -> "检测未完成，无法提交"
+                }
+
+                Button(
+                    onClick = { viewModel.finalizeCheckRecord() },
+                    enabled = canSubmit && !uiState.isSubmitting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Dimens.ButtonHeight),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primaryDark,
+                        disabledContainerColor = Color(0xFFCBD5E1),
+                        disabledContentColor = Color(0xFF64748B)
+                    )
+                ) {
+                    Text(text = buttonText)
+                }
             }
         }
         }
@@ -651,7 +955,7 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { },
                 title = {
-                    Text(text = "健康询问", color = BrandGreen, fontSize = Dimens.TextSizeLarge)
+                    Text(text = "健康询问", color = primaryDark, fontSize = Dimens.TextSizeLarge)
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal)) {
@@ -676,7 +980,7 @@ fun HomeScreen(
                                 viewModel.submitSymptoms(emptyList())
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryDark)
                     ) {
                         Text(text = "确认", fontSize = Dimens.TextSizeNormal, color = Color.White)
                     }
@@ -704,7 +1008,7 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { },
                 title = {
-                    Text(text = "今日已晨检", color = BrandGreen, fontSize = Dimens.TextSizeLarge)
+                    Text(text = "今日已晨检", color = primaryDark, fontSize = Dimens.TextSizeLarge)
                 },
                 text = {
                     Text(
@@ -715,7 +1019,7 @@ fun HomeScreen(
                 confirmButton = {
                     Button(
                         onClick = { viewModel.continueDuplicateMorningCheck() },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryDark)
                     ) {
                         Text(text = "继续晨检", fontSize = Dimens.TextSizeNormal, color = Color.White)
                     }
@@ -742,7 +1046,7 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(BrandGreen.copy(alpha = 0.92f)),
+                    .background(success.copy(alpha = 0.92f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -831,7 +1135,7 @@ private fun TransitionMask() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.material3.CircularProgressIndicator(
-                color = Color.White,
+                color = Color(0xFF3B82F6),
                 strokeWidth = 3.dp,
                 modifier = Modifier.size(36.dp)
             )
@@ -852,9 +1156,12 @@ private fun HandGuideOverlay(
     isCaptured: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val success = Color(0xFF10B981)
+    val warning = Color(0xFFF59E0B)
+
     val targetColor = when {
-        isCaptured -> BrandGreen
-        hasDetection -> Color(0xFFFFD54F)
+        isCaptured -> success
+        hasDetection -> warning
         else -> Color.White
     }
     val guideColor by animateColorAsState(targetValue = targetColor, animationSpec = tween(220), label = "handGuide")
@@ -912,7 +1219,7 @@ private fun HandGuideOverlay(
         )
 
         if (isCaptured) {
-            drawRect(color = BrandGreen.copy(alpha = 0.08f))
+            drawRect(color = success.copy(alpha = 0.08f))
         }
     }
 }
@@ -976,7 +1283,7 @@ private fun HandForeignObjectOverlay(
             foreignObjects.forEach { fo ->
                 val mapped = mapBox(fo.box, cropLeft, cropTop, scale, offsetX, offsetY)
                 drawRect(
-                    color = Color.Red,
+                    color = Color(0xFFEF4444),
                     topLeft = androidx.compose.ui.geometry.Offset(mapped.left, mapped.top),
                     size = androidx.compose.ui.geometry.Size(mapped.width(), mapped.height()),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
@@ -1016,7 +1323,7 @@ private fun HandResultOverlay(
         handInfos.forEach { hand ->
             val handBox = mapBox(hand.box)
             drawRect(
-                color = if (hand.hasForeignObject) Color.Red else BrandGreen,
+                color = if (hand.hasForeignObject) Color(0xFFEF4444) else Color(0xFF10B981),
                 topLeft = androidx.compose.ui.geometry.Offset(handBox.left, handBox.top),
                 size = androidx.compose.ui.geometry.Size(handBox.width(), handBox.height()),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
@@ -1041,7 +1348,7 @@ private fun HandResultOverlay(
             foreignObjects.forEach { fo ->
                 val mapped = mapBox(fo.box)
                 drawRect(
-                    color = Color.Red,
+                    color = Color(0xFFEF4444),
                     topLeft = androidx.compose.ui.geometry.Offset(mapped.left, mapped.top),
                     size = androidx.compose.ui.geometry.Size(mapped.width(), mapped.height()),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
@@ -1053,94 +1360,111 @@ private fun HandResultOverlay(
 
 @Composable
 private fun ScannerFrameOverlay() {
-    Box(modifier = Modifier.fillMaxSize()) {
-        val cornerColor = BrandGreen
-        val cornerLength = 40.dp
-        val cornerStroke = 4.dp
+    val primaryBlue = Color(0xFF3B82F6)
+    val cornerLength = 40.dp
+    val cornerStroke = 3.dp
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(24.dp)
-                .width(cornerLength)
-                .height(cornerLength)
-        ) {
+    val infinite = androidx.compose.animation.core.rememberInfiniteTransition(label = "reticle")
+    val scanProgress by infinite.animateFloat(
+        initialValue = 0.05f,
+        targetValue = 0.95f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = tween(2500),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "scan"
+    )
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(width = 320.dp, height = 380.dp)) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(cornerStroke)
-                    .background(cornerColor)
-            )
+                    .align(Alignment.TopStart)
+                    .size(cornerLength)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cornerStroke)
+                        .background(primaryBlue)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(cornerStroke)
+                        .fillMaxHeight()
+                        .background(primaryBlue)
+                )
+            }
+
             Box(
                 modifier = Modifier
-                    .width(cornerStroke)
-                    .fillMaxHeight()
-                    .background(cornerColor)
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(24.dp)
-                .width(cornerLength)
-                .height(cornerLength)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(cornerStroke)
-                    .background(cornerColor)
-            )
-            Box(
-                modifier = Modifier
-                    .width(cornerStroke)
-                    .fillMaxHeight()
-                    .background(cornerColor)
                     .align(Alignment.TopEnd)
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(24.dp)
-                .width(cornerLength)
-                .height(cornerLength)
-        ) {
+                    .size(cornerLength)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cornerStroke)
+                        .background(primaryBlue)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(cornerStroke)
+                        .fillMaxHeight()
+                        .background(primaryBlue)
+                        .align(Alignment.TopEnd)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .size(cornerLength)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cornerStroke)
+                        .background(primaryBlue)
+                        .align(Alignment.BottomStart)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(cornerStroke)
+                        .fillMaxHeight()
+                        .background(primaryBlue)
+                        .align(Alignment.BottomStart)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(cornerLength)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cornerStroke)
+                        .background(primaryBlue)
+                        .align(Alignment.BottomEnd)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(cornerStroke)
+                        .fillMaxHeight()
+                        .background(primaryBlue)
+                        .align(Alignment.BottomEnd)
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(cornerStroke)
-                    .background(cornerColor)
-                    .align(Alignment.BottomStart)
-            )
-            Box(
-                modifier = Modifier
-                    .width(cornerStroke)
-                    .fillMaxHeight()
-                    .background(cornerColor)
-                    .align(Alignment.BottomStart)
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-                .width(cornerLength)
-                .height(cornerLength)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(cornerStroke)
-                    .background(cornerColor)
-                    .align(Alignment.BottomEnd)
-            )
-            Box(
-                modifier = Modifier
-                    .width(cornerStroke)
-                    .fillMaxHeight()
-                    .background(cornerColor)
-                    .align(Alignment.BottomEnd)
+                    .height(2.dp)
+                    .align(Alignment.TopStart)
+                    .offset(y = (380.dp - 2.dp) * scanProgress)
+                    .background(primaryBlue)
             )
         }
     }
@@ -1155,19 +1479,33 @@ private fun StatusBadge(
     text: String,
     modifier: Modifier = Modifier
 ) {
+    val primaryBlue = Color(0xFF3B82F6)
+    val pillBg = Color(0xFF0F172A).copy(alpha = 0.60f)
+
     Surface(
-        color = Color.Black.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(18.dp),
+        color = pillBg,
+        shape = RoundedCornerShape(30.dp),
         tonalElevation = 0.dp,
-        modifier = modifier
+        modifier = modifier.border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(30.dp))
     ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontSize = Dimens.TextSizeLarge,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = primaryBlue,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 

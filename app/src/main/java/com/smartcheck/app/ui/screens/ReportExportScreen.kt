@@ -19,18 +19,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -43,13 +51,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.data.db.RecordEntity
-import com.smartcheck.app.ui.theme.BrandGreen
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.ReportExportViewModel
 import java.io.File
@@ -67,6 +76,8 @@ fun ReportExportScreen(
     val records by viewModel.records.collectAsState()
     var dateFilter by remember { mutableStateOf("") }
     var exporting by remember { mutableStateOf(false) }
+    var showDateMenu by remember { mutableStateOf(false) }
+    var showCustomDateInput by remember { mutableStateOf(false) }
     val historyItems = remember { mutableStateListOf<ExportHistoryItem>() }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -74,132 +85,343 @@ fun ReportExportScreen(
         historyItems.addAll(loadExportHistory(context))
     }
 
+    val primaryBlue = Color(0xFF2563EB)
+    val bgMain = Color(0xFFF1F5F9)
+    val textMain = Color(0xFF1E293B)
+    val textMuted = Color(0xFF64748B)
+    val borderColor = Color(0xFFE2E8F0)
+    val infoBg = Color(0xFFE0E7FF)
+    val infoText = Color(0xFF3730A3)
+
+    val now = System.currentTimeMillis()
+    val todayKey = remember(now) { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now) }
+    val monthKey = remember(now) { SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(now) }
+
+    val rangeText = buildRangeText(records, dateFilter)
+    val hint = when {
+        dateFilter.isBlank() -> "(全部)"
+        Regex("\\d{4}-\\d{2}$").matches(dateFilter.trim()) -> "(本月)"
+        Regex("\\d{4}-\\d{2}-\\d{2}$").matches(dateFilter.trim()) -> "(当天)"
+        else -> ""
+    }
+    val dateDisplay = when {
+        dateFilter.isBlank() -> "全部记录"
+        rangeText != "--" -> "$rangeText $hint".trim()
+        else -> dateFilter
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
-            .padding(Dimens.PaddingLarge)
+            .background(bgMain)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "数据导出",
-                color = BrandGreen,
-                fontSize = Dimens.TextSizeTitle,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = BrandGreen)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = dateFilter,
-                onValueChange = { dateFilter = it },
-                modifier = Modifier
-                    .width(420.dp)
-                    .height(Dimens.InputHeight),
-                singleLine = true,
-                label = { Text("日期筛选") },
-                trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) }
-            )
-            Button(
-                onClick = {
-                    if (exporting) return@Button
-                    exporting = true
-                    val result = exportRecordsCsv(
-                        context = context,
-                        records = records,
-                        dateFilter = dateFilter
-                    )
-                    exporting = false
-                    if (result != null) {
-                        val rangeText = buildRangeText(records, dateFilter)
-                        val item = ExportHistoryItem(
-                            id = System.currentTimeMillis().toString(),
-                            createdAt = System.currentTimeMillis(),
-                            year = SimpleDateFormat("yyyy", Locale.getDefault()).format(System.currentTimeMillis()),
-                            rangeText = rangeText,
-                            fileName = result.displayName,
-                            uri = result.uri.toString(),
-                            absolutePath = result.absolutePath,
-                            dateFilter = dateFilter
+        Surface(color = Color.White, shadowElevation = 0.dp) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(bgMain)
+                            .clickable(onClick = onNavigateBack),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowLeft,
+                            contentDescription = "返回",
+                            tint = textMain
                         )
-                        historyItems.add(0, item)
-                        writeExportHistory(context, historyItems)
-                        Toast.makeText(context, "已保存到: ${result.absolutePath}", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
                     }
-                },
-                modifier = Modifier
-                    .height(Dimens.InputHeight)
-                    .width(220.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-            ) {
-                Text(text = "确认导出", color = Color.White, fontSize = Dimens.TextSizeNormal)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = "数据导出中心",
+                        color = textMain,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Divider(color = borderColor)
             }
         }
-
-        Spacer(modifier = Modifier.height(Dimens.PaddingLarge))
-
-        Text(
-            text = "导出记录",
-            fontSize = Dimens.TextSizeLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
 
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(Color(0xFFF9FAFB))
+                .padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            ExportHeaderRow()
-            if (historyItems.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = "暂无导出记录", color = Color(0xFF6B7280))
+            Surface(color = infoBg, shape = RoundedCornerShape(8.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = infoText,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "提示：导出的报表将保存至设备本地文件夹。如需转发，请前往系统文件管理器进行分享。",
+                        color = infoText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(historyItems) { index, item ->
-                        ExportRow(
-                            index = index + 1,
-                            item = item,
-                            onDownload = {
-                                handleDownload(context, records, historyItems, item)
-                            },
-                            onShare = {
-                                handleShare(context, records, historyItems, item)
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = primaryBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "新建导出任务",
+                            color = textMain,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFF8FAFC))
+                                .clickable { showDateMenu = true }
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = dateDisplay,
+                                    color = textMain,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = textMuted
+                                )
                             }
+
+                            DropdownMenu(
+                                expanded = showDateMenu,
+                                onDismissRequest = { showDateMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("全部") },
+                                    onClick = {
+                                        showDateMenu = false
+                                        showCustomDateInput = false
+                                        dateFilter = ""
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("今天") },
+                                    onClick = {
+                                        showDateMenu = false
+                                        showCustomDateInput = false
+                                        dateFilter = todayKey
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("本月") },
+                                    onClick = {
+                                        showDateMenu = false
+                                        showCustomDateInput = false
+                                        dateFilter = monthKey
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("自定义日期关键字") },
+                                    onClick = {
+                                        showDateMenu = false
+                                        showCustomDateInput = true
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(18.dp))
+
+                        Button(
+                            onClick = {
+                                if (exporting) return@Button
+                                exporting = true
+                                val result = exportRecordsCsv(
+                                    context = context,
+                                    records = records,
+                                    dateFilter = dateFilter
+                                )
+                                exporting = false
+                                if (result != null) {
+                                    val item = ExportHistoryItem(
+                                        id = System.currentTimeMillis().toString(),
+                                        createdAt = System.currentTimeMillis(),
+                                        year = SimpleDateFormat("yyyy", Locale.getDefault()).format(System.currentTimeMillis()),
+                                        rangeText = buildRangeText(records, dateFilter),
+                                        fileName = result.displayName,
+                                        uri = result.uri.toString(),
+                                        absolutePath = result.absolutePath,
+                                        dateFilter = dateFilter
+                                    )
+                                    historyItems.add(0, item)
+                                    writeExportHistory(context, historyItems)
+                                    Toast.makeText(context, "已保存到: ${result.absolutePath}", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .height(44.dp)
+                                .width(180.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryBlue),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "确认导出",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    if (showCustomDateInput) {
+                        OutlinedTextField(
+                            value = dateFilter,
+                            onValueChange = { dateFilter = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("日期关键字 (yyyy-MM 或 yyyy-MM-dd)") }
                         )
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
+            Spacer(modifier = Modifier.height(0.dp))
 
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = "下载即下载到设备本地文件；转发可选择本机微信进行分享",
-                fontSize = Dimens.TextSizeSmall,
-                color = Color(0xFF6B7280),
-                textAlign = TextAlign.End
-            )
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFCFCFC))
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = primaryBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "导出记录",
+                            color = textMain,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Divider(color = borderColor)
+
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ExportHeaderRow()
+                        if (historyItems.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Color(0xFFCBD5E1),
+                                        modifier = Modifier.size(80.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "暂无导出记录",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = textMain
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "您还没有进行过数据导出，请在上方选择日期后点击导出。",
+                                        fontSize = 15.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                itemsIndexed(historyItems) { index, item ->
+                                    ExportRow(
+                                        index = index + 1,
+                                        item = item,
+                                        onDownload = {
+                                            handleDownload(context, records, historyItems, item)
+                                        },
+                                        onShare = {
+                                            handleShare(context, records, historyItems, item)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -209,7 +431,7 @@ private fun ExportHeaderRow() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF3F4F6))
+            .background(Color(0xFFF8FAFC))
             .padding(horizontal = Dimens.PaddingNormal, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -238,7 +460,7 @@ private fun ExportRow(
         BodyCell(text = index.toString(), width = 80.dp)
         BodyCell(text = item.year, width = 100.dp)
         BodyCell(text = item.rangeText, width = 200.dp)
-        BodyCell(text = "晨检记录表格.xlsx", width = 220.dp)
+        BodyCell(text = item.fileName, width = 220.dp)
         Row(
             modifier = Modifier.width(140.dp),
             horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
@@ -312,18 +534,30 @@ private data class ExportResult(
     val absolutePath: String
 )
 
+private fun csvEscape(value: String): String {
+    val escaped = value.replace("\"", "\"\"")
+    val needsQuote = escaped.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+    return if (needsQuote) "\"$escaped\"" else escaped
+}
+
 private fun buildCsvContent(
     records: List<RecordEntity>,
     dateFilter: String
 ): ByteArray {
     val dateKey = dateFilter.trim()
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
     val filtered = records.filter { record ->
-        dateKey.isBlank() || SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            .format(record.checkTime)
-            .contains(dateKey)
+        dateKey.isBlank() || dateFormat.format(record.checkTime).contains(dateKey)
     }
+
     val header = "姓名,工号,体温,手部情况,健康证状态,身体不适,结果,时间,人脸照片,手心照片,手背照片\n"
-    val builder = StringBuilder(header)
+
+    val builder = StringBuilder()
+    builder.append('\uFEFF')
+    builder.append(header)
+
     filtered.forEach { record ->
         val row = listOf(
             record.userName,
@@ -333,14 +567,15 @@ private fun buildCsvContent(
             record.healthCertStatus,
             record.symptomFlags,
             if (record.isPassed) "通过" else "未通过",
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(record.checkTime),
+            timeFormat.format(record.checkTime),
             record.faceImagePath.orEmpty(),
             record.handPalmPath.orEmpty(),
             record.handBackPath.orEmpty()
-        ).joinToString(",") { it.replace(",", " ") }
+        ).joinToString(",") { csvEscape(it) }
         builder.append(row).append("\n")
     }
-    return builder.toString().toByteArray()
+
+    return builder.toString().toByteArray(Charsets.UTF_8)
 }
 
 private fun saveToDownloads(
@@ -349,7 +584,8 @@ private fun saveToDownloads(
     content: ByteArray
 ): ExportResult? {
     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-    val absolutePath = File(downloadsDir, displayName).absolutePath
+    val legacyAbsolutePath = File(downloadsDir, displayName).absolutePath
+    val displayPath = "${Environment.DIRECTORY_DOWNLOADS}/$displayName"
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
@@ -361,7 +597,7 @@ private fun saveToDownloads(
         context.contentResolver.openOutputStream(uri)?.use { out ->
             out.write(content)
         }
-        ExportResult(uri = uri, displayName = displayName, absolutePath = absolutePath)
+        ExportResult(uri = uri, displayName = displayName, absolutePath = displayPath)
     } else {
         if (!downloadsDir.exists()) downloadsDir.mkdirs()
         val file = File(downloadsDir, displayName)
@@ -373,7 +609,7 @@ private fun saveToDownloads(
             "${context.packageName}.fileprovider",
             file
         )
-        ExportResult(uri = uri, displayName = displayName, absolutePath = absolutePath)
+        ExportResult(uri = uri, displayName = displayName, absolutePath = legacyAbsolutePath)
     }
 }
 

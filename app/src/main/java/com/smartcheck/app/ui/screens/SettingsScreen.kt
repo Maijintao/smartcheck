@@ -1,12 +1,14 @@
 package com.smartcheck.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,11 +27,14 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,9 +56,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.smartcheck.app.ui.theme.BrandGreen
 import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.utils.DeviceInfo
 import com.smartcheck.app.ui.theme.Dimens
@@ -101,14 +106,23 @@ fun SettingsScreen(
     val deviceModel = remember { DeviceInfo.getDeviceModel() }
     val appVersion = remember { DeviceInfo.getAppVersion(context) }
 
+    val primaryBlue = Color(0xFF2563EB)
+    val primaryLight = Color(0xFFEFF6FF)
+    val bgMain = Color(0xFFF8FAFC)
+    val bgSidebar = Color.White
+    val textMain = Color(0xFF1E293B)
+    val textMuted = Color(0xFF64748B)
+    val borderColor = Color(0xFFE2E8F0)
+    val danger = Color(0xFFEF4444)
+    val dangerLight = Color(0xFFFEF2F2)
+
     var dialogLabel by remember { mutableStateOf("") }
     var dialogValue by remember { mutableStateOf("") }
     var onDialogConfirm by remember { mutableStateOf<((String) -> Unit)?>(null) }
     var showDialog by remember { mutableStateOf(false) }
     var showUpdateLoading by remember { mutableStateOf(false) }
     var showAvatarMenu by remember { mutableStateOf(false) }
-    var showBackgroundMenu by remember { mutableStateOf(false) }
-    
+
     // 密码修改对话框
     var showPasswordDialog by remember { mutableStateOf(false) }
     var oldPassword by remember { mutableStateOf("") }
@@ -216,395 +230,476 @@ fun SettingsScreen(
         }
     }
 
-    Row(modifier = Modifier.fillMaxSize()) {
+    Row(modifier = Modifier.fillMaxSize().background(bgMain)) {
         Column(
             modifier = Modifier
-                .weight(0.25f)
+                .width(280.dp)
                 .fillMaxSize()
-                .background(BrandGreen)
-                .padding(Dimens.PaddingLarge),
-            verticalArrangement = Arrangement.spacedBy(Dimens.PaddingLarge)
+                .background(bgSidebar)
         ) {
-            Text(
-                text = "设置中心",
-                color = Color.White,
-                fontSize = Dimens.TextSizeTitle,
-                fontWeight = FontWeight.Bold
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall)) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 32.dp)) {
+                Text(
+                    text = "设置中心",
+                    color = textMain,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .background(Color(0xFFE11D48), RoundedCornerShape(10.dp))
-                        .padding(horizontal = Dimens.PaddingNormal),
+                        .height(52.dp)
+                        .background(primaryLight, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 18.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
                         text = "管理员设置",
-                        color = Color.White,
-                        fontSize = Dimens.TextSizeNormal
+                        color = primaryBlue,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(dangerLight)
+                    .clickable {
+                        authViewModel.logout()
+                        CoroutineScope(Dispatchers.Main).launch { onLogout() }
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "退出登录",
+                    color = danger,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
+
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(borderColor)
+        )
 
         Column(
             modifier = Modifier
-                .weight(0.75f)
+                .weight(1f)
                 .fillMaxSize()
-                .background(Color.White)
-                .padding(Dimens.PaddingLarge)
+                .background(bgMain)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 48.dp, vertical = 28.dp)
+                    .clickable(onClick = onNavigateBack),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "返回",
-                        tint = BrandGreen,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "返回主页",
+                    tint = textMuted,
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "返回主页",
+                    color = textMuted,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(start = 48.dp, end = 48.dp, bottom = 48.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(Dimens.PaddingLarge)
+                verticalArrangement = Arrangement.spacedBy(28.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFFE5E7EB)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (adminAvatar.isNotBlank()) {
-                            AsyncImage(
-                                model = adminAvatar,
-                                contentDescription = "头像",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "头像",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(48.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-                    Text(
-                        text = "修改头像",
-                        color = Color(0xFF2563EB),
-                        fontSize = Dimens.TextSizeNormal,
-                        modifier = Modifier.clickable { showAvatarMenu = true }
-                    )
-                    DropdownMenu(
-                        expanded = showAvatarMenu,
-                        onDismissRequest = { showAvatarMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("拍照") },
-                            onClick = {
-                                showAvatarMenu = false
-                                cameraLauncher.launch(cameraImageUri)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("从相册选择") },
-                            onClick = {
-                                showAvatarMenu = false
-                                avatarPicker.launch("image/*")
-                            }
-                        )
-                    }
-                }
-
-                // 重置授权按钮
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            DeviceAuth.clearActivation()
-                            CoroutineScope(Dispatchers.Main).launch {
-                                onLogout()
-                            }
-                        }
-                        .padding(vertical = Dimens.PaddingNormal),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "重置授权",
-                        fontSize = Dimens.TextSizeNormal,
-                        color = Color(0xFFDC2626)
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = Color(0xFFDC2626)
-                    )
-                }
-
-                // 激活服务器地址（只读）
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
-                        .padding(Dimens.PaddingNormal),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "激活服务器地址",
-                            fontSize = Dimens.TextSizeNormal,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF111827)
-                        )
-                        Text(
-                            text = DeviceAuth.SERVER_URL,
-                            fontSize = Dimens.TextSizeSmall,
-                            color = Color(0xFF6B7280)
-                        )
-                    }
-                }
-
-                // 当前登录用户信息
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
-                        .padding(Dimens.PaddingNormal),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "当前登录: $currentAccount",
-                            fontSize = Dimens.TextSizeNormal,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF111827)
-                        )
-                        if (currentRole != null) {
-                            Text(
-                                text = "角色: ${if (currentRole == "admin") "管理员" else "员工"}",
-                                fontSize = Dimens.TextSizeSmall,
-                                color = Color(0xFF6B7280)
-                            )
-                        }
-                    }
-                }
-
-                // 设备信息
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
-                        .padding(Dimens.PaddingNormal)
-                        .clickable {
-                            openEdit("设备SN", deviceSn) { newValue ->
-                                viewModel.setDeviceSn(newValue)
+                SettingsSectionTitle(title = "个人资料", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "管理员头像",
+                        subtitle = "支持 JPG, PNG 格式图片",
+                        leading = {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(primaryLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (adminAvatar.isNotBlank()) {
+                                    AsyncImage(
+                                        model = adminAvatar,
+                                        contentDescription = "头像",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = "头像",
+                                        tint = primaryBlue,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
                             }
                         },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "设备SN",
-                            fontSize = Dimens.TextSizeNormal,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF111827)
-                        )
-                        Text(
-                            text = deviceSn.ifEmpty { deviceId },
-                            fontSize = Dimens.TextSizeSmall,
-                            color = Color(0xFF6B7280)
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = deviceModel,
-                            fontSize = Dimens.TextSizeSmall,
-                            color = Color(0xFF6B7280)
-                        )
-                        Text(
-                            text = "v$appVersion",
-                            fontSize = Dimens.TextSizeSmall,
-                            color = Color(0xFF6B7280)
-                        )
-                    }
-                }
-
-                // 退出登录按钮
-                Button(
-                    onClick = {
-                        authViewModel.logout()
-                        CoroutineScope(Dispatchers.Main).launch {
-                            onLogout()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    Text(text = "退出登录", color = Color.White, fontSize = Dimens.TextSizeNormal)
-                }
-
-                Spacer(modifier = Modifier.height(Dimens.PaddingLarge))
-
-                SettingRow(
-                    label = "管理员姓名",
-                    value = if (adminName.isBlank()) "赵某某" else adminName,
-                    onEdit = { openEdit("管理员姓名", adminName) { viewModel.setAdminName(it) } }
-                )
-                SettingRow(
-                    label = "当前账号",
-                    value = currentAccount,
-                    onEdit = null
-                )
-                SettingRow(
-                    label = "修改密码",
-                    value = "******",
-                    onEdit = { showPasswordChangeDialog() }
-                )
-                SettingRow(
-                    label = "食堂名称",
-                    value = if (canteenName.isBlank()) "上海交通大学荔园三食堂" else canteenName,
-                    onEdit = { openEdit("食堂名称", canteenName) { viewModel.setCanteenName(it) } }
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "当前版本",
-                        fontSize = Dimens.TextSizeNormal,
-                        color = Color(0xFF111827)
+                        trailing = {
+                            PillButton(
+                                text = "修改头像",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { showAvatarMenu = true }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "V${BuildConfig.VERSION_NAME}",
-                            fontSize = Dimens.TextSizeNormal,
-                            color = Color(0xFF111827)
-                        )
-                        Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-                        TextButton(
-                            onClick = {
-                                if (!historyLoading) {
-                                    historyLoading = true
-                                    updateScope.launch {
-                                        Timber.i("SettingsScreen 获取版本历史")
-                                        AppUpdateChecker.getVersionHistory(DeviceAuth.SERVER_URL)
-                                            .fold(
-                                                onSuccess = { history ->
-                                                    historyLoading = false
-                                                    versionHistory = history
-                                                    showHistoryDialog = true
-                                                },
-                                                onFailure = { e ->
-                                                    historyLoading = false
-                                                    updateError = e.message ?: "获取历史失败"
-                                                }
-                                            )
-                                    }
-                                }
-                            }
-                        ) {
-                            if (historyLoading) {
-                                CircularProgressIndicator(
-                                    color = BrandGreen,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            } else {
+                    SettingsItem(
+                        title = "管理员姓名",
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "更新记录",
-                                    color = BrandGreen,
-                                    fontSize = Dimens.TextSizeSmall
+                                    text = if (adminName.isBlank()) "赵某某" else adminName,
+                                    color = textMuted,
+                                    fontSize = 16.sp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                PillButton(
+                                    text = "修改",
+                                    kind = PillButtonKind.Primary,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = { openEdit("管理员姓名", adminName) { viewModel.setAdminName(it) } }
                                 )
                             }
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Button(
-                            onClick = {
-                                if (showUpdateLoading) return@Button
-                                Timber.i("SettingsScreen 用户点击'获取新版'")
-                                showUpdateLoading = true
-                                updateError = ""
-                                updateScope.launch {
-                                    Timber.i("SettingsScreen 开始检查更新，服务器: ${DeviceAuth.SERVER_URL}")
-                                    AppUpdateChecker.checkUpdate(DeviceAuth.SERVER_URL)
-                                        .fold(
-                                            onSuccess = { info ->
-                                                showUpdateLoading = false
-                                                if (info != null) {
-                                                    Timber.i("SettingsScreen 发现新版本: ${info.versionName} (code=${info.versionCode})")
-                                                    availableUpdate = info
-                                                } else {
-                                                    Timber.i("SettingsScreen 已是最新版本")
-                                                    updateError = "已是最新版本"
-                                                }
-                                            },
-                                            onFailure = { e ->
-                                                showUpdateLoading = false
-                                                Timber.e("SettingsScreen 检查更新失败: ${e.message}")
-                                                updateError = e.message ?: "检查失败"
-                                            }
-                                        )
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-                        ) {
-                            if (showUpdateLoading) {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp)
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "登录账号与密码",
+                        subtitle = "当前账号: $currentAccount",
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "******", color = textMuted, fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                PillButton(
+                                    text = "修改密码",
+                                    kind = PillButtonKind.Primary,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = { showPasswordChangeDialog() }
                                 )
-                                Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
                             }
-                            Text(text = "获取新版", color = Color.White)
-                        }
-                    }
-                }
-
-                if (updateError.isNotEmpty()) {
-                    Text(
-                        text = updateError,
-                        fontSize = Dimens.TextSizeSmall,
-                        color = if (updateError == "已是最新版本") BrandGreen else Color(0xFFDC2626),
-                        modifier = Modifier.padding(horizontal = 4.dp)
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
                     )
                 }
 
-                SettingRow(
-                    label = "登录页标题",
-                    value = if (loginTitle.isBlank()) "欢迎使用智能晨检仪" else loginTitle,
-                    onEdit = { openEdit("登录页标题", loginTitle) { viewModel.setLoginTitle(it) } },
-                    preview = if (loginTitle.isBlank()) "欢迎使用智能晨检仪" else loginTitle
-                )
-
-                Button(
-                    onClick = { viewModel.clearRecordImages() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
+                DropdownMenu(
+                    expanded = showAvatarMenu,
+                    onDismissRequest = { showAvatarMenu = false }
                 ) {
-                    Text(text = "清理历史记录照片", color = Color.White, fontSize = Dimens.TextSizeNormal)
+                    DropdownMenuItem(
+                        text = { Text("拍照") },
+                        onClick = {
+                            showAvatarMenu = false
+                            cameraLauncher.launch(cameraImageUri)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("从相册选择") },
+                        onClick = {
+                            showAvatarMenu = false
+                            avatarPicker.launch("image/*")
+                        }
+                    )
+                }
+
+                SettingsSectionTitle(title = "设备与系统", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "设备识别码 (SN)",
+                        subtitle = deviceSn.ifEmpty { deviceId },
+                        trailing = {
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(text = "型号: $deviceModel", color = textMuted, fontSize = 13.sp)
+                                Text(text = "v$appVersion", color = textMuted, fontSize = 13.sp)
+                            }
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "激活服务器地址",
+                        subtitle = DeviceAuth.SERVER_URL,
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "系统授权状态",
+                        subtitle = "当前版本: V${BuildConfig.VERSION_NAME}",
+                        trailing = {
+                            PillButton(
+                                text = "重置授权",
+                                kind = PillButtonKind.Danger,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = {
+                                    DeviceAuth.clearActivation()
+                                    CoroutineScope(Dispatchers.Main).launch { onLogout() }
+                                }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "当前登录",
+                        subtitle = buildString {
+                            append(currentAccount)
+                            if (currentRole != null) {
+                                append(" · ")
+                                append(if (currentRole == "admin") "管理员" else "员工")
+                            }
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "食堂名称",
+                        subtitle = if (canteenName.isBlank()) "上海交通大学荔园三食堂" else canteenName,
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("食堂名称", canteenName) { viewModel.setCanteenName(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "语音播报",
+                        subtitle = if (voiceEnabled) "已开启" else "已关闭",
+                        trailing = {
+                            Switch(
+                                checked = voiceEnabled,
+                                onCheckedChange = { viewModel.setVoiceEnabled(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = primaryBlue,
+                                    uncheckedThumbColor = Color.White,
+                                    uncheckedTrackColor = Color(0xFFE2E8F0)
+                                )
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
+                    )
+                }
+
+                SettingsSectionTitle(title = "应用更新", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "当前版本",
+                        subtitle = "V${BuildConfig.VERSION_NAME}",
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PillButton(
+                                    text = if (historyLoading) "加载中" else "更新记录",
+                                    kind = PillButtonKind.Outline,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = {
+                                        if (!historyLoading) {
+                                            historyLoading = true
+                                            updateScope.launch {
+                                                AppUpdateChecker.getVersionHistory(DeviceAuth.SERVER_URL)
+                                                    .fold(
+                                                        onSuccess = { history ->
+                                                            historyLoading = false
+                                                            versionHistory = history
+                                                            showHistoryDialog = true
+                                                        },
+                                                        onFailure = { e ->
+                                                            historyLoading = false
+                                                            updateError = e.message ?: "获取历史失败"
+                                                        }
+                                                    )
+                                            }
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                PillButton(
+                                    text = if (showUpdateLoading) "检查中" else "获取新版",
+                                    kind = PillButtonKind.Primary,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    enabled = !showUpdateLoading,
+                                    onClick = {
+                                        if (showUpdateLoading) return@PillButton
+                                        showUpdateLoading = true
+                                        updateError = ""
+                                        updateScope.launch {
+                                            AppUpdateChecker.checkUpdate(DeviceAuth.SERVER_URL)
+                                                .fold(
+                                                    onSuccess = { info ->
+                                                        showUpdateLoading = false
+                                                        if (info != null) {
+                                                            availableUpdate = info
+                                                        } else {
+                                                            updateError = "已是最新版本"
+                                                        }
+                                                    },
+                                                    onFailure = { e ->
+                                                        showUpdateLoading = false
+                                                        updateError = e.message ?: "检查失败"
+                                                    }
+                                                )
+                                        }
+                                    }
+                                )
+                            }
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
+                    )
+
+                    if (updateError.isNotEmpty()) {
+                        Text(
+                            text = updateError,
+                            fontSize = 13.sp,
+                            color = if (updateError == "已是最新版本") primaryBlue else danger,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp)
+                        )
+                    }
+                }
+
+                SettingsSectionTitle(title = "界面与个性化", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "登录页标题",
+                        subtitle = if (loginTitle.isBlank()) "欢迎使用智能晨检仪" else loginTitle,
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("登录页标题", loginTitle) { viewModel.setLoginTitle(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "登录页背景",
+                        subtitle = if (loginBackground.isBlank()) "默认背景" else "已设置",
+                        trailing = {
+                            PillButton(
+                                text = "选择图片",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { backgroundPicker.launch("image/*") }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
+                    )
+                }
+
+                SettingsSectionTitle(title = "维护", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "清理历史记录照片",
+                        subtitle = "删除本地照片与历史记录",
+                        trailing = {
+                            PillButton(
+                                text = "立即清理",
+                                kind = PillButtonKind.Danger,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { viewModel.clearRecordImages() }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
+                    )
                 }
             }
         }
@@ -657,7 +752,7 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
                 ) { Text(text = "立即更新", color = Color.White) }
             },
             dismissButton = {
@@ -680,7 +775,7 @@ fun SettingsScreen(
                         LinearProgressIndicator(
                             progress = downloadProgress / 100f,
                             modifier = Modifier.fillMaxWidth(),
-                            color = BrandGreen
+                            color = primaryBlue
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -694,7 +789,7 @@ fun SettingsScreen(
                             if (downloadSpeed.isNotEmpty()) {
                                 Text(
                                     text = downloadSpeed,
-                                    color = BrandGreen,
+                                    color = primaryBlue,
                                     fontSize = Dimens.TextSizeSmall
                                 )
                             }
@@ -702,7 +797,7 @@ fun SettingsScreen(
                     } else {
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
-                            color = BrandGreen
+                            color = primaryBlue
                         )
                         Text(text = "下载完成，等待安装...", color = Color(0xFF6B7280))
                     }
@@ -739,7 +834,7 @@ fun SettingsScreen(
                         onDialogConfirm?.invoke(dialogValue)
                         showDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
                 ) {
                     Text(text = "确定", color = Color.White)
                 }
@@ -795,7 +890,7 @@ fun SettingsScreen(
                                             fontSize = Dimens.TextSizeSmall,
                                             color = Color.White,
                                             modifier = Modifier
-                                                .background(BrandGreen, RoundedCornerShape(4.dp))
+                                                .background(primaryBlue, RoundedCornerShape(4.dp))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
@@ -821,7 +916,7 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showHistoryDialog = false }) {
-                    Text(text = "关闭", color = BrandGreen)
+                    Text(text = "关闭", color = primaryBlue)
                 }
             }
         )
@@ -871,7 +966,7 @@ fun SettingsScreen(
                 Button(
                     onClick = { confirmPasswordChange() },
                     enabled = !passwordLoading,
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
                 ) {
                     if (passwordLoading) {
                         CircularProgressIndicator(
@@ -896,39 +991,144 @@ fun SettingsScreen(
     }
 }
 
+private enum class PillButtonKind {
+    Primary,
+    Outline,
+    Danger
+}
+
 @Composable
-private fun SettingRow(
-    label: String,
-    value: String,
-    onEdit: (() -> Unit)? = null,
-    preview: String? = null
+private fun SettingsSectionTitle(
+    title: String,
+    textMuted: Color
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text(
+        text = title,
+        fontSize = 15.sp,
+        color = textMuted,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 8.dp, top = 6.dp)
+    )
+}
+
+@Composable
+private fun SettingsCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column { content() }
+    }
+}
+
+@Composable
+private fun SettingsItem(
+    title: String,
+    subtitle: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    textMain: Color,
+    textMuted: Color,
+    borderColor: Color,
+    showDivider: Boolean = true
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "$label：$value",
-                fontSize = Dimens.TextSizeNormal,
-                color = Color(0xFF111827)
-            )
-            if (onEdit != null) {
-                Text(
-                    text = "修改",
-                    color = Color(0xFF2563EB),
-                    fontSize = Dimens.TextSizeNormal,
-                    modifier = Modifier.clickable(onClick = onEdit)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (leading != null) {
+                    Box(modifier = Modifier.padding(end = 14.dp)) {
+                        leading()
+                    }
+                }
+                Column {
+                    Text(
+                        text = title,
+                        fontSize = 16.sp,
+                        color = textMain,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (!subtitle.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = subtitle,
+                            fontSize = 13.sp,
+                            color = textMuted
+                        )
+                    }
+                }
+            }
+
+            if (trailing != null) {
+                Box(modifier = Modifier.padding(start = 16.dp)) {
+                    trailing()
+                }
             }
         }
-        if (preview != null) {
-            Text(
-                text = "预览：$preview",
-                fontSize = Dimens.TextSizeSmall,
-                color = Color(0xFF6B7280)
-            )
+
+        if (showDivider) {
+            Divider(color = borderColor)
         }
+    }
+}
+
+@Composable
+private fun PillButton(
+    text: String,
+    kind: PillButtonKind,
+    primaryBlue: Color,
+    primaryLight: Color,
+    borderColor: Color,
+    danger: Color,
+    dangerLight: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val bg = when (kind) {
+        PillButtonKind.Primary -> primaryBlue
+        PillButtonKind.Outline -> primaryLight
+        PillButtonKind.Danger -> dangerLight
+    }
+    val fg = when (kind) {
+        PillButtonKind.Primary -> Color.White
+        PillButtonKind.Outline -> primaryBlue
+        PillButtonKind.Danger -> danger
+    }
+    val stroke = when (kind) {
+        PillButtonKind.Outline -> borderColor
+        else -> null
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(bg)
+            .then(
+                if (stroke != null) {
+                    Modifier.border(1.dp, stroke, RoundedCornerShape(20.dp))
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = fg,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
