@@ -69,6 +69,20 @@ class MainViewModel @Inject constructor(
     private val appScope: CoroutineScope
 ) : ViewModel() {
 
+    companion object {
+        private const val REQUIRED_HAND_COUNT = 2
+        private const val REQUIRED_HAND_STABLE_FRAMES = 2
+        private const val HAND_SIDE_UNKNOWN_EPS = 0.03f
+        private const val HAND_STAGE_COOLDOWN_MS = 1200L
+        private val FINGER_TIP_INDEXES = intArrayOf(4, 8, 12, 16, 20)
+    }
+
+    private enum class HandSide {
+        PALM,
+        BACK,
+        UNKNOWN,
+    }
+
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     
@@ -737,7 +751,7 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 state = CheckState.HAND_PALM_CHECKING,
-                message = "请将手心放入检测仪",
+                message = "请同时伸出两只手心",
                 handPalmPath = null,
                 handBackPath = null,
                 handPalmInfos = emptyList(),
@@ -745,7 +759,7 @@ class MainViewModel @Inject constructor(
             )
         }
 
-        voiceService.speak("请将手心放入检测仪")
+        voiceService.speak("请同时伸出两只手心")
     }
 
     private fun startHandBackCheck() {
@@ -757,11 +771,11 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 state = CheckState.HAND_BACK_CHECKING,
-                message = "请将手背放入检测仪"
+                message = "请同时伸出两只手背"
             )
         }
 
-        voiceService.speak("请将手背放入检测仪")
+        voiceService.speak("请同时伸出两只手背")
     }
 
     private fun processHandStepFrame(frame: Bitmap) {
@@ -774,7 +788,7 @@ class MainViewModel @Inject constructor(
             try {
                 val now = System.currentTimeMillis()
                 if (!isRockchip) {
-                    if (now - handStepStartAt >= 800L) {
+                    if (now - handStepStartAt >= 500L) {
                         if (state == CheckState.HAND_PALM_CHECKING) {
                             captureHandPalmAndCooldown(frame, emptyList())
                         } else {
@@ -789,8 +803,36 @@ class MainViewModel @Inject constructor(
                 }
                 _handDetectionState.value = results
 
-                if (results.isEmpty()) {
+                if (results.size < REQUIRED_HAND_COUNT) {
                     handOkFrames = 0
+                    _uiState.update {
+                        it.copy(
+                            message = if (state == CheckState.HAND_PALM_CHECKING) {
+                                "请同时伸出两只手心"
+                            } else {
+                                "请同时伸出两只手背"
+                            }
+                        )
+                    }
+                    return@launch
+                }
+
+                val expectedSide = if (state == CheckState.HAND_PALM_CHECKING) {
+                    HandSide.PALM
+                } else {
+                    HandSide.BACK
+                }
+                if (!isExpectedHandSide(results, expectedSide)) {
+                    handOkFrames = 0
+                    _uiState.update {
+                        it.copy(
+                            message = if (state == CheckState.HAND_PALM_CHECKING) {
+                                "请同时伸出两只手心"
+                            } else {
+                                "请同时伸出两只手背"
+                            }
+                        )
+                    }
                     return@launch
                 }
 
@@ -830,7 +872,7 @@ class MainViewModel @Inject constructor(
                 }
 
                 handOkFrames++
-                if (handOkFrames >= 3) {
+                if (handOkFrames >= REQUIRED_HAND_STABLE_FRAMES) {
                     if (state == CheckState.HAND_PALM_CHECKING) {
                         captureHandPalmAndCooldown(frame, results)
                     } else {
@@ -1042,7 +1084,7 @@ class MainViewModel @Inject constructor(
 
         handCooldownJob?.cancel()
         handCooldownJob = viewModelScope.launch {
-            delay(2500)
+            delay(HAND_STAGE_COOLDOWN_MS)
             startHandBackCheck()
         }
     }
@@ -1145,6 +1187,72 @@ class MainViewModel @Inject constructor(
         handCooldownJob?.cancel()
         autoSubmitJob?.cancel()
         Timber.tag("MainViewModel").d("MainViewModel cleared")
+    }
+
+    private fun isExpectedHandSide(
+        infos: List<com.smartcheck.sdk.HandInfo>,
+        expected: HandSide,
+    ): Boolean {
+        return classifyStageHandSide(infos) == expected
+    }
+
+    private fun classifyStageHandSide(infos: List<com.smartcheck.sdk.HandInfo>): HandSide {
+        if (infos.size < REQUIRED_HAND_COUNT) return HandSide.UNKNOWN
+
+        val twoHands = infos
+            .sortedByDescending { (it.box.right - it.box.left) * (it.box.bottom - it.box.top) }
+            .take(REQUIRED_HAND_COUNT)
+            .sortedBy { (it.box.left + it.box.right) / 2f }
+
+        if (twoHands.size < REQUIRED_HAND_COUNT) return HandSide.UNKNOWN
+
+        val left = twoHands[0]
+        val right = twoHands[1]
+        if (left.keyPoints.size <= 20 || right.keyPoints.size <= 20) return HandSide.UNKNOWN
+
+        val leftCenterX = (left.box.left + left.box.right) / 2f
+        val rightCenterX = (right.box.left + right.box.right) / 2f
+        val leftWidth = (left.box.right - left.box.left).coerceAtLeast(1f)
+        val rightWidth = (right.box.right - right.box.left).coerceAtLeast(1f)
+
+        val leftShortestTipX = findShortestFingerTipX(left) ?: return HandSide.UNKNOWN
+        val rightShortestTipX = findShortestFingerTipX(right) ?: return HandSide.UNKNOWN
+
+        // 平放时最短指位通常是拇指：用该点在手框内侧/外侧判定手心手背
+        val leftShortestBias = (leftShortestTipX - leftCenterX) / leftWidth
+        val rightShortestBias = (rightShortestTipX - rightCenterX) / rightWidth
+
+        // 左手内侧在右边(>0)，右手内侧在左边(<0)
+        val palmPattern = leftShortestBias > HAND_SIDE_UNKNOWN_EPS && rightShortestBias < -HAND_SIDE_UNKNOWN_EPS
+        val backPattern = leftShortestBias < -HAND_SIDE_UNKNOWN_EPS && rightShortestBias > HAND_SIDE_UNKNOWN_EPS
+
+        return when {
+            palmPattern -> HandSide.PALM
+            backPattern -> HandSide.BACK
+            else -> HandSide.UNKNOWN
+        }
+    }
+
+    private fun findShortestFingerTipX(info: com.smartcheck.sdk.HandInfo): Float? {
+        val kp = info.keyPoints
+        if (kp.size <= 20) return null
+
+        val wrist = kp[0]
+        var shortestDistance = Float.MAX_VALUE
+        var shortestTipX: Float? = null
+
+        for (tipIndex in FINGER_TIP_INDEXES) {
+            val tip = kp[tipIndex]
+            val dx = tip.x - wrist.x
+            val dy = tip.y - wrist.y
+            val distance = dx * dx + dy * dy
+            if (distance < shortestDistance) {
+                shortestDistance = distance
+                shortestTipX = tip.x
+            }
+        }
+
+        return shortestTipX
     }
 
     private fun Bitmap?.safeRecycle() {
