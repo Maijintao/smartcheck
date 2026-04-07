@@ -72,9 +72,9 @@ class MainViewModel @Inject constructor(
     companion object {
         private const val REQUIRED_HAND_COUNT = 2
         private const val REQUIRED_HAND_STABLE_FRAMES = 2
-        private const val HAND_SIDE_UNKNOWN_EPS = 0.03f
+        private const val HAND_SIDE_UNKNOWN_EPS = 0.02f
         private const val HAND_STAGE_COOLDOWN_MS = 1200L
-        private val FINGER_TIP_INDEXES = intArrayOf(4, 8, 12, 16, 20)
+        private const val HAND_BOX_IOU_MAX = 0.55f
     }
 
     private enum class HandSide {
@@ -116,6 +116,7 @@ class MainViewModel @Inject constructor(
     private var handStepStartAt = 0L
     private var handCooldownJob: Job? = null
     private var autoSubmitJob: Job? = null
+    private var handFrameMirrored: Boolean = false
 
     private var currentFacePath: String? = null
     private var currentPalmPath: String? = null
@@ -212,6 +213,10 @@ class MainViewModel @Inject constructor(
             CheckState.HAND_PALM_CHECKING, CheckState.HAND_BACK_CHECKING -> processHandStepFrame(frame)
             else -> Unit
         }
+    }
+
+    fun updateHandFrameMirror(mirrored: Boolean) {
+        handFrameMirrored = mirrored
     }
     
     /**
@@ -803,7 +808,9 @@ class MainViewModel @Inject constructor(
                 }
                 _handDetectionState.value = results
 
-                if (results.size < REQUIRED_HAND_COUNT) {
+                val stageHands = selectDistinctHands(results)
+
+                if (stageHands.size < REQUIRED_HAND_COUNT) {
                     handOkFrames = 0
                     _uiState.update {
                         it.copy(
@@ -822,7 +829,7 @@ class MainViewModel @Inject constructor(
                 } else {
                     HandSide.BACK
                 }
-                if (!isExpectedHandSide(results, expectedSide)) {
+                if (!isExpectedHandSide(stageHands, expectedSide)) {
                     handOkFrames = 0
                     _uiState.update {
                         it.copy(
@@ -847,7 +854,7 @@ class MainViewModel @Inject constructor(
                     _uiState.update {
                         if (state == CheckState.HAND_PALM_CHECKING) {
                             it.copy(
-                                handPalmInfos = results,
+                                handPalmInfos = stageHands,
                                 handPalmFrameWidth = frame.width,
                                 handPalmFrameHeight = frame.height,
                                 handHasIssue = true,
@@ -855,7 +862,7 @@ class MainViewModel @Inject constructor(
                             )
                         } else {
                             it.copy(
-                                handBackInfos = results,
+                                handBackInfos = stageHands,
                                 handBackFrameWidth = frame.width,
                                 handBackFrameHeight = frame.height,
                                 handHasIssue = true,
@@ -864,9 +871,9 @@ class MainViewModel @Inject constructor(
                         }
                     }
                     if (state == CheckState.HAND_PALM_CHECKING) {
-                        captureHandPalmAndCooldown(frame, results, isIssue = true)
+                        captureHandPalmAndCooldown(frame, stageHands, isIssue = true)
                     } else {
-                        captureHandBackAndFinish(frame, results, issues, isIssue = true)
+                        captureHandBackAndFinish(frame, stageHands, issues, isIssue = true)
                     }
                     return@launch
                 }
@@ -874,11 +881,11 @@ class MainViewModel @Inject constructor(
                 handOkFrames++
                 if (handOkFrames >= REQUIRED_HAND_STABLE_FRAMES) {
                     if (state == CheckState.HAND_PALM_CHECKING) {
-                        captureHandPalmAndCooldown(frame, results)
+                        captureHandPalmAndCooldown(frame, stageHands)
                     } else {
                         val issues = _uiState.value.handDetectionResults
                         val hasPriorIssue = _uiState.value.handHasIssue
-                        captureHandBackAndFinish(frame, results, issues, isIssue = hasPriorIssue)
+                        captureHandBackAndFinish(frame, stageHands, issues, isIssue = hasPriorIssue)
                     }
                 }
             } catch (e: Exception) {
@@ -1193,16 +1200,14 @@ class MainViewModel @Inject constructor(
         infos: List<com.smartcheck.sdk.HandInfo>,
         expected: HandSide,
     ): Boolean {
-        return classifyStageHandSide(infos) == expected
+        val observedSide = classifyHandSide(infos)
+        return observedSide != HandSide.UNKNOWN && observedSide == expected
     }
 
-    private fun classifyStageHandSide(infos: List<com.smartcheck.sdk.HandInfo>): HandSide {
+    private fun classifyHandSide(infos: List<com.smartcheck.sdk.HandInfo>): HandSide {
         if (infos.size < REQUIRED_HAND_COUNT) return HandSide.UNKNOWN
 
-        val twoHands = infos
-            .sortedByDescending { (it.box.right - it.box.left) * (it.box.bottom - it.box.top) }
-            .take(REQUIRED_HAND_COUNT)
-            .sortedBy { (it.box.left + it.box.right) / 2f }
+        val twoHands = infos.sortedBy { (it.box.left + it.box.right) / 2f }
 
         if (twoHands.size < REQUIRED_HAND_COUNT) return HandSide.UNKNOWN
 
@@ -1210,49 +1215,110 @@ class MainViewModel @Inject constructor(
         val right = twoHands[1]
         if (left.keyPoints.size <= 20 || right.keyPoints.size <= 20) return HandSide.UNKNOWN
 
-        val leftCenterX = (left.box.left + left.box.right) / 2f
-        val rightCenterX = (right.box.left + right.box.right) / 2f
-        val leftWidth = (left.box.right - left.box.left).coerceAtLeast(1f)
-        val rightWidth = (right.box.right - right.box.left).coerceAtLeast(1f)
+        // MediaPipe 常用几何法：使用 wrist(0), index_mcp(5), pinky_mcp(17)
+        // 先逐手判断，再要求两只手方向一致（都手心或都手背）。
+        val leftCross = palmCrossSign(left)
+        val rightCross = palmCrossSign(right)
 
-        val leftShortestTipX = findShortestFingerTipX(left) ?: return HandSide.UNKNOWN
-        val rightShortestTipX = findShortestFingerTipX(right) ?: return HandSide.UNKNOWN
+        // 左右手在同一姿态下叉积天然相反，按屏幕左右归一化后应同号。
+        val leftNorm = leftCross
+        val rightNorm = -rightCross
 
-        // 平放时最短指位通常是拇指：用该点在手框内侧/外侧判定手心手背
-        val leftShortestBias = (leftShortestTipX - leftCenterX) / leftWidth
-        val rightShortestBias = (rightShortestTipX - rightCenterX) / rightWidth
-
-        // 左手内侧在右边(>0)，右手内侧在左边(<0)
-        val palmPattern = leftShortestBias > HAND_SIDE_UNKNOWN_EPS && rightShortestBias < -HAND_SIDE_UNKNOWN_EPS
-        val backPattern = leftShortestBias < -HAND_SIDE_UNKNOWN_EPS && rightShortestBias > HAND_SIDE_UNKNOWN_EPS
-
-        return when {
-            palmPattern -> HandSide.PALM
-            backPattern -> HandSide.BACK
+        var leftSide = when {
+            leftNorm > HAND_SIDE_UNKNOWN_EPS -> HandSide.PALM
+            leftNorm < -HAND_SIDE_UNKNOWN_EPS -> HandSide.BACK
             else -> HandSide.UNKNOWN
         }
-    }
+        var rightSide = when {
+            rightNorm > HAND_SIDE_UNKNOWN_EPS -> HandSide.PALM
+            rightNorm < -HAND_SIDE_UNKNOWN_EPS -> HandSide.BACK
+            else -> HandSide.UNKNOWN
+        }
 
-    private fun findShortestFingerTipX(info: com.smartcheck.sdk.HandInfo): Float? {
-        val kp = info.keyPoints
-        if (kp.size <= 20) return null
-
-        val wrist = kp[0]
-        var shortestDistance = Float.MAX_VALUE
-        var shortestTipX: Float? = null
-
-        for (tipIndex in FINGER_TIP_INDEXES) {
-            val tip = kp[tipIndex]
-            val dx = tip.x - wrist.x
-            val dy = tip.y - wrist.y
-            val distance = dx * dx + dy * dy
-            if (distance < shortestDistance) {
-                shortestDistance = distance
-                shortestTipX = tip.x
+        if (handFrameMirrored) {
+            leftSide = when (leftSide) {
+                HandSide.PALM -> HandSide.BACK
+                HandSide.BACK -> HandSide.PALM
+                HandSide.UNKNOWN -> HandSide.UNKNOWN
+            }
+            rightSide = when (rightSide) {
+                HandSide.PALM -> HandSide.BACK
+                HandSide.BACK -> HandSide.PALM
+                HandSide.UNKNOWN -> HandSide.UNKNOWN
             }
         }
 
-        return shortestTipX
+        val side = when {
+            leftSide == HandSide.PALM && rightSide == HandSide.PALM -> HandSide.PALM
+            leftSide == HandSide.BACK && rightSide == HandSide.BACK -> HandSide.BACK
+            else -> HandSide.UNKNOWN
+        }
+
+        if (side != HandSide.UNKNOWN) {
+            Timber.tag("MainViewModel").d(
+                "[HandSide-MP] leftCross=%.4f rightCross=%.4f leftNorm=%.4f rightNorm=%.4f leftSide=%s rightSide=%s mirrored=%s side=%s",
+                leftCross,
+                rightCross,
+                leftNorm,
+                rightNorm,
+                leftSide.name,
+                rightSide.name,
+                handFrameMirrored,
+                side.name
+            )
+        }
+
+        return side
+    }
+
+    private fun selectDistinctHands(
+        infos: List<com.smartcheck.sdk.HandInfo>
+    ): List<com.smartcheck.sdk.HandInfo> {
+        val sorted = infos.sortedByDescending { it.score }
+        val selected = mutableListOf<com.smartcheck.sdk.HandInfo>()
+        for (info in sorted) {
+            val isDuplicate = selected.any { iou(it, info) > HAND_BOX_IOU_MAX }
+            if (!isDuplicate) {
+                selected += info
+            }
+            if (selected.size >= REQUIRED_HAND_COUNT) {
+                break
+            }
+        }
+        return selected.sortedBy { (it.box.left + it.box.right) / 2f }
+    }
+
+    private fun iou(a: com.smartcheck.sdk.HandInfo, b: com.smartcheck.sdk.HandInfo): Float {
+        val left = kotlin.math.max(a.box.left, b.box.left)
+        val top = kotlin.math.max(a.box.top, b.box.top)
+        val right = kotlin.math.min(a.box.right, b.box.right)
+        val bottom = kotlin.math.min(a.box.bottom, b.box.bottom)
+        val interW = (right - left).coerceAtLeast(0f)
+        val interH = (bottom - top).coerceAtLeast(0f)
+        val inter = interW * interH
+        val areaA = (a.box.right - a.box.left).coerceAtLeast(0f) * (a.box.bottom - a.box.top).coerceAtLeast(0f)
+        val areaB = (b.box.right - b.box.left).coerceAtLeast(0f) * (b.box.bottom - b.box.top).coerceAtLeast(0f)
+        val union = areaA + areaB - inter
+        return if (union <= 0f) 0f else inter / union
+    }
+
+    private fun palmCrossSign(info: com.smartcheck.sdk.HandInfo): Float {
+        val kp = info.keyPoints
+        if (kp.size <= 17) return 0f
+
+        val wrist = kp[0]
+        val indexMcp = kp[5]
+        val pinkyMcp = kp[17]
+
+        val v1x = indexMcp.x - wrist.x
+        val v1y = indexMcp.y - wrist.y
+        val v2x = pinkyMcp.x - wrist.x
+        val v2y = pinkyMcp.y - wrist.y
+
+        val cross = v1x * v2y - v1y * v2x
+        val boxW = (info.box.right - info.box.left).coerceAtLeast(1f)
+        val boxH = (info.box.bottom - info.box.top).coerceAtLeast(1f)
+        return cross / (boxW * boxH)
     }
 
     private fun Bitmap?.safeRecycle() {

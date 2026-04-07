@@ -240,6 +240,12 @@ fun HomeScreen(
     val isMirrored = cameraLensFacing == CameraSelector.LENS_FACING_FRONT ||
         (!isHandStage && cameraLensFacing == CameraSelector.LENS_FACING_EXTERNAL)
 
+    LaunchedEffect(isHandStage, isMirrored) {
+        // Analyzer 输出帧通常不是预览镜像坐标，这里固定关闭镜像补偿，
+        // 避免用 UI 镜像状态误导手心/手背判定极性。
+        viewModel.updateHandFrameMirror(false)
+    }
+
     LaunchedEffect(isHandStage) {
         if (isHandStage) {
             showTransitionMask = true
