@@ -166,7 +166,7 @@ fun AdminLoginScreen(
                         )
                         Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
                         Text(
-                            text = if (canteenName.isBlank()) "某某科技" else canteenName,
+                            text = if (canteenName.isBlank()) "朴食科技" else canteenName,
                             fontSize = Dimens.TextSizeNormal,
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold

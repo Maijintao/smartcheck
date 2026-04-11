@@ -112,6 +112,7 @@ fun HomeScreen(
     var previewHeight by remember { mutableIntStateOf(0) }
     var cameraLensFacing by remember { mutableIntStateOf(-1) }
     var lastFrameBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var lastFrameBitmapUpdatedAt by remember { mutableLongStateOf(0L) }
     var faceSnapshot by remember { mutableStateOf<Bitmap?>(null) }
     var handFrontShot by remember { mutableStateOf<Bitmap?>(null) }
     var handBackShot by remember { mutableStateOf<Bitmap?>(null) }
@@ -302,7 +303,12 @@ fun HomeScreen(
                     onFrameAnalyzed = { bitmap ->
                         lastFrameWidth = bitmap.width
                         lastFrameHeight = bitmap.height
-                        lastFrameBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                        val now = System.currentTimeMillis()
+                        if (now - lastFrameBitmapUpdatedAt >= 300L) {
+                            lastFrameBitmap?.safeRecycle()
+                            lastFrameBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                            lastFrameBitmapUpdatedAt = now
+                        }
                         viewModel.processFrame(bitmap)
                     },
                     onCameraInfo = { _, lensFacing ->

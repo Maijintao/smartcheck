@@ -38,10 +38,38 @@ class SerialPortManager @Inject constructor() {
     private var outputStream: OutputStream? = null
     private var isOpen = false
 
+    private var ledSerialPort: SerialPort? = null
+    private var ledOutputStream: OutputStream? = null
+    private var isLedOpen = false
+    private var lastLedWriteAt: Long = 0L
+
     companion object {
         const val TAG = "SerialPortManager"
         const val DEFAULT_DEVICE_PATH = "/dev/ttyS7"
         const val DEFAULT_BAUD_RATE = 115200
+
+        const val LED_DEVICE_PATH = "/dev/ttyS6"
+        const val LED_BAUD_RATE = 9600
+        private const val LED_CMD_INTERVAL_MS = 80L
+
+        private val CMD_LED_ALL_ON = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x31, 0x41, 0x30
+        )
+        private val CMD_LED_ALL_OFF = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x30, 0x41, 0x30
+        )
+        private val CMD_LED_FACE_ON = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x33, 0x41, 0x30
+        )
+        private val CMD_LED_FACE_OFF = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x32, 0x41, 0x30
+        )
+        private val CMD_LED_HAND_ON = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x35, 0x41, 0x30
+        )
+        private val CMD_LED_HAND_OFF = byteArrayOf(
+            0x41, 0x30, 0x30, 0x31, 0x30, 0x34, 0x41, 0x30
+        )
     }
 
     private var currentDevicePath = DEFAULT_DEVICE_PATH
@@ -98,11 +126,109 @@ class SerialPortManager @Inject constructor() {
             outputStream = null
             serialPort?.tryClose()
             serialPort = null
+
+            closeLedPort()
+
             Timber.tag(TAG).i("Serial port closed")
         } catch (e: Exception) {
             Timber.tag(TAG).e("Error closing serial port: ${e.message}")
         }
     }
+
+    @Synchronized
+    private fun openLedPort(): Boolean {
+        if (isLedOpen && ledOutputStream != null) return true
+
+        return try {
+            val deviceFile = File(LED_DEVICE_PATH)
+            if (!deviceFile.exists()) {
+                Timber.tag(TAG).e("LED serial port device NOT found: $LED_DEVICE_PATH")
+                return false
+            }
+
+            ledSerialPort = SerialPort(deviceFile, LED_BAUD_RATE)
+            ledOutputStream = ledSerialPort?.outputStream
+            isLedOpen = ledOutputStream != null
+            if (isLedOpen) {
+                Timber.tag(TAG).i("LED serial port opened: $LED_DEVICE_PATH @ $LED_BAUD_RATE")
+            }
+            isLedOpen
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to open LED serial port")
+            closeLedPort()
+            false
+        }
+    }
+
+    @Synchronized
+    private fun closeLedPort() {
+        try {
+            isLedOpen = false
+            ledOutputStream = null
+            ledSerialPort?.tryClose()
+            ledSerialPort = null
+            Timber.tag(TAG).d("LED serial port closed")
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Error closing LED serial port")
+        }
+    }
+
+    @Synchronized
+    private fun sendLedCommand(command: ByteArray, label: String): Boolean {
+        if (tryWriteLedCommand(command, label)) return true
+
+        // 某些设备在串口短暂异常后需重开端口再发一次。
+        closeLedPort()
+        if (tryWriteLedCommand(command, "$label(retry)")) return true
+
+        Timber.tag(TAG).e("LED command failed after retry: $label")
+        return false
+    }
+
+    private fun tryWriteLedCommand(command: ByteArray, label: String): Boolean {
+        if (!openLedPort()) {
+            Timber.tag(TAG).w("Skip LED command, LED port not ready: $label")
+            return false
+        }
+
+        return try {
+            val now = System.currentTimeMillis()
+            val waitMs = LED_CMD_INTERVAL_MS - (now - lastLedWriteAt)
+            if (waitMs > 0) {
+                Thread.sleep(waitMs)
+            }
+            ledOutputStream?.write(command)
+            ledOutputStream?.flush()
+            lastLedWriteAt = System.currentTimeMillis()
+            val hex = command.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+            Timber.tag(TAG).d("LED command sent: $label")
+            Timber.tag(TAG).d("LED command bytes: $hex")
+            true
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to send LED command: $label")
+            false
+        }
+    }
+
+    fun ledAllOn(): Boolean = sendLedCommand(CMD_LED_ALL_ON, "ALL_ON")
+
+    fun ledAllOff(): Boolean = sendLedCommand(CMD_LED_ALL_OFF, "ALL_OFF")
+
+    fun ledFaceOn(): Boolean {
+        if (sendLedCommand(CMD_LED_FACE_ON, "FACE_ON")) return true
+        Timber.tag(TAG).w("FACE_ON failed, fallback to ALL_ON")
+        return sendLedCommand(CMD_LED_ALL_ON, "ALL_ON_FALLBACK_FACE")
+    }
+
+    fun ledFaceOff(): Boolean = sendLedCommand(CMD_LED_FACE_OFF, "FACE_OFF")
+
+    fun ledHandOn(): Boolean {
+        if (sendLedCommand(CMD_LED_HAND_ON, "HAND_ON")) return true
+        Timber.tag(TAG).w("HAND_ON failed, fallback to ALL_ON")
+        return sendLedCommand(CMD_LED_ALL_ON, "ALL_ON_FALLBACK_HAND")
+    }
+
+    fun ledHandOff(): Boolean = sendLedCommand(CMD_LED_HAND_OFF, "HAND_OFF")
 
     fun getAvailableDevices(): List<String> {
         return try {

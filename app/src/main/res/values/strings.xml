@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SmartCheck AI</string>
+    <string name="app_name">朴食智能晨检</string>
     
     <!-- 状态提示 -->
     <string name="status_idle">请正视摄像头</string>

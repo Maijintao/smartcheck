@@ -59,12 +59,23 @@ class HardwareRepository @Inject constructor(
             serialPortManager.controlDoor(false)
         }
     }
+
+    fun turnOnFaceLight(): Boolean = serialPortManager.ledFaceOn()
+
+    fun turnOffFaceLight(): Boolean = serialPortManager.ledFaceOff()
+
+    fun turnOnHandLight(): Boolean = serialPortManager.ledHandOn()
+
+    fun turnOffHandLight(): Boolean = serialPortManager.ledHandOff()
+
+    fun turnOffAllLights(): Boolean = serialPortManager.ledAllOff()
     
     /**
      * 释放硬件资源
      */
     fun release() {
         Timber.d("Releasing hardware...")
+        serialPortManager.ledAllOff()
         serialPortManager.close()
     }
 }

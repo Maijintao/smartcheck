@@ -83,6 +83,12 @@ class MainViewModel @Inject constructor(
         UNKNOWN,
     }
 
+    private enum class LightStage {
+        FACE,
+        HAND,
+        OFF,
+    }
+
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     
@@ -138,6 +144,7 @@ class MainViewModel @Inject constructor(
     private var lastRecognizedUserId: Long? = null // 上次识别成功的用户ID，避免重复识别
     private var lastUnknownTrackingId: Int = -1
     private var lastUnknownVoiceAt: Long = 0L
+    private var currentLightStage: LightStage = LightStage.OFF
 
     private val minFreeBytes = 200L * 1024L * 1024L
     private val faceGuideText = "请将人脸对准摄像头"
@@ -152,6 +159,7 @@ class MainViewModel @Inject constructor(
     init {
         Timber.tag("MainViewModel").d("MainViewModel initialized")
         hardwareRepository.init()
+        turnAllLightsOff(force = true)
         voiceService.setEnabled(settingsRepository.isVoiceEnabled())
         announceFaceGuide(force = true)
         viewModelScope.launch {
@@ -201,6 +209,7 @@ class MainViewModel @Inject constructor(
         if (_uiState.value.state == CheckState.IDLE) {
             if (now - lastFaceFrameAt >= 300L) {
                 lastFaceFrameAt = now
+                currentFaceBitmap.safeRecycle()
                 currentFaceBitmap = frame.copy(Bitmap.Config.ARGB_8888, false)
             }
         } else {
@@ -274,7 +283,7 @@ class MainViewModel @Inject constructor(
         lastFaceDetectAt = now
 
         faceDetectJob = viewModelScope.launch {
-            val safeBitmap = frame.copy(Bitmap.Config.ARGB_8888, true)
+            val safeBitmap = frame
             try {
                 // 1. 使用跟踪获取人脸位置
                 val trackedFaces = withContext(Dispatchers.Default) {
@@ -305,6 +314,9 @@ class MainViewModel @Inject constructor(
                         // 4. 连续稳定且未识别过此人脸时才识别
                         if (stableFramesCount >= requiredStableFrames && 
                             lastRecognizedUserId == null) {
+                            // 每次请求人脸识别前都开人脸灯。
+                            requestFaceRecognitionLight(force = false)
+
                             // 进行识别
                             val result = withContext(NonCancellable) {
                                 faceEngine.detectAndRecognize(safeBitmap)
@@ -358,7 +370,6 @@ class MainViewModel @Inject constructor(
                 Timber.tag("MainViewModel").e(e, "Face tracking error")
                 _faceDetectionBoxes.value = emptyList()
             } finally {
-                safeBitmap.safeRecycle()
                 frame.safeRecycle()
             }
         }
@@ -370,6 +381,9 @@ class MainViewModel @Inject constructor(
     private fun onFaceRecognized(userId: Long, userName: String, confidence: Float) {
         if (_uiState.value.state != CheckState.IDLE) return
         Timber.tag("MainViewModel").d("Face recognized: $userName (confidence: $confidence)")
+
+        // 人脸识别成功后再灭灯，避免识别请求过程中闪烁。
+        finishFaceRecognitionLight()
 
         viewModelScope.launch {
             proceedAfterFaceRecognized(userId, userName, confidence)
@@ -399,6 +413,7 @@ class MainViewModel @Inject constructor(
 
         if (!result.isAllowedToContinue) {
             hardwareRepository.beep("error")
+            turnAllLightsOff()
             scheduleReset(5000)
             return
         }
@@ -499,6 +514,7 @@ class MainViewModel @Inject constructor(
                 }
             }.onFailure {
                 _uiState.update { it.copy(message = "测温失败") }
+                turnAllLightsOff()
                 scheduleReset(3000)
             }
         }
@@ -535,6 +551,7 @@ class MainViewModel @Inject constructor(
         }
         
         hardwareRepository.beep("error")
+        turnAllLightsOff()
         morningCheckUseCase.speakTemperatureAbnormal(temp)
         
         saveCheckRecord(isPassed = false, isTempNormal = false, isHandNormal = true)
@@ -613,12 +630,15 @@ class MainViewModel @Inject constructor(
         }
 
         hardwareRepository.beep("success")
+        turnAllLightsOff()
         morningCheckUseCase.speakAllPass()
         hardwareRepository.openDoor()
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun confirmHandFront(issues: List<String>) = Unit
 
+    @Suppress("UNUSED_PARAMETER")
     fun confirmHandBack(issues: List<String>) = Unit
 
     private fun onSymptomFail(symptoms: List<String>) {
@@ -632,6 +652,7 @@ class MainViewModel @Inject constructor(
         }
 
         hardwareRepository.beep("error")
+        turnAllLightsOff()
         morningCheckUseCase.speakSymptomFail()
         
         finalizeCheckRecord()
@@ -753,6 +774,8 @@ class MainViewModel @Inject constructor(
         handCooldownJob?.cancel()
         _faceDetectionBoxes.value = emptyList()
 
+        ensureHandLightOn()
+
         _uiState.update {
             it.copy(
                 state = CheckState.HAND_PALM_CHECKING,
@@ -772,6 +795,8 @@ class MainViewModel @Inject constructor(
         handStepStartAt = System.currentTimeMillis()
         _handDetectionState.value = emptyList()
         handCooldownJob?.cancel()
+
+        ensureHandLightOn()
 
         _uiState.update {
             it.copy(
@@ -1001,6 +1026,7 @@ class MainViewModel @Inject constructor(
         resetJob?.cancel()
         handCooldownJob?.cancel()
         autoSubmitJob?.cancel()
+        turnAllLightsOff(force = true)
         
         _uiState.update {
             UiState(
@@ -1107,7 +1133,8 @@ class MainViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     state = CheckState.HAND_FAIL,
-                    message = "手部检测不合格"
+                    message = "手部检测不合格",
+                    handDetectionResults = if (issues.isNotEmpty()) issues else it.handDetectionResults,
                 )
             }
         } else {
@@ -1193,7 +1220,51 @@ class MainViewModel @Inject constructor(
         resetJob?.cancel()
         handCooldownJob?.cancel()
         autoSubmitJob?.cancel()
+        turnAllLightsOff(force = true)
+        hardwareRepository.release()
         Timber.tag("MainViewModel").d("MainViewModel cleared")
+    }
+
+    private fun ensureFaceLightOn(force: Boolean = false) {
+        if (!force && currentLightStage == LightStage.FACE) return
+        requestFaceRecognitionLight(force)
+    }
+
+    private fun ensureHandLightOn(force: Boolean = false) {
+        if (!force && currentLightStage == LightStage.HAND) return
+        val handOnOk = hardwareRepository.turnOnHandLight()
+        if (handOnOk) {
+            hardwareRepository.turnOffFaceLight()
+        }
+        currentLightStage = if (handOnOk) LightStage.HAND else LightStage.OFF
+        if (!handOnOk) {
+            Timber.tag("MainViewModel").w("Failed to switch to HAND light stage")
+        }
+    }
+
+    private fun turnAllLightsOff(force: Boolean = false) {
+        if (!force && currentLightStage == LightStage.OFF) return
+        hardwareRepository.turnOffFaceLight()
+        hardwareRepository.turnOffHandLight()
+        hardwareRepository.turnOffAllLights()
+        currentLightStage = LightStage.OFF
+    }
+
+    private fun requestFaceRecognitionLight(force: Boolean = false) {
+        if (!force && currentLightStage == LightStage.FACE) return
+        val faceOnOk = hardwareRepository.turnOnFaceLight()
+        if (faceOnOk) {
+            hardwareRepository.turnOffHandLight()
+        }
+        currentLightStage = if (faceOnOk) LightStage.FACE else LightStage.OFF
+        if (!faceOnOk) {
+            Timber.tag("MainViewModel").w("Failed to switch to FACE light stage before recognition request")
+        }
+    }
+
+    private fun finishFaceRecognitionLight() {
+        hardwareRepository.turnOffFaceLight()
+        currentLightStage = LightStage.OFF
     }
 
     private fun isExpectedHandSide(
