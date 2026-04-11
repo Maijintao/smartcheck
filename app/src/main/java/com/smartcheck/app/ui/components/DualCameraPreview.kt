@@ -1,13 +1,9 @@
 package com.smartcheck.app.ui.components
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.PixelFormat
-import android.graphics.Rect
-import android.graphics.YuvImage
 import android.util.Rational
 import android.util.Size
 import android.view.Surface
@@ -23,7 +19,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import timber.log.Timber
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
 enum class CameraType {
@@ -256,18 +251,11 @@ private fun rotateBitmap(bitmap: Bitmap, degrees: Float): Bitmap {
 }
 
 private fun ImageProxy.toBitmapCompat(): Bitmap {
-    if (format == PixelFormat.RGBA_8888) {
-        return rgba8888ToBitmap(this)
+    if (format != PixelFormat.RGBA_8888) {
+        // 人脸链路强制 RGBA，避免回落到 YUV/JPEG 的高开销软转换路径。
+        throw IllegalStateException("Unexpected image format: $format, require RGBA_8888")
     }
-
-    require(format == ImageFormat.YUV_420_888) { "Unsupported image format: $format" }
-
-    val nv21 = yuv420ToNv21(this)
-    val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-    val out = ByteArrayOutputStream()
-    yuvImage.compressToJpeg(Rect(0, 0, width, height), 90, out)
-    val imageBytes = out.toByteArray()
-    return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+    return rgba8888ToBitmap(this)
 }
 
 private val rgbaRowBufferTL = ThreadLocal<ByteArray>()
@@ -285,6 +273,15 @@ private fun rgba8888ToBitmap(image: ImageProxy): Bitmap {
     require(pixelStride == 4) { "Unexpected RGBA pixelStride=$pixelStride" }
 
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val contiguousStride = width * 4
+    if (rowStride == contiguousStride) {
+        val expectedBytes = contiguousStride * height
+        if (buffer.remaining() >= expectedBytes) {
+            bitmap.copyPixelsFromBuffer(buffer)
+            return bitmap
+        }
+    }
+
     val rowSize = width * 4
     val row = (rgbaRowBufferTL.get()?.takeIf { it.size >= rowSize } ?: ByteArray(rowSize)).also {
         rgbaRowBufferTL.set(it)
@@ -308,53 +305,4 @@ private fun rgba8888ToBitmap(image: ImageProxy): Bitmap {
         bitmap.setPixels(pixelBuffer, 0, width, 0, y, width, 1)
     }
     return bitmap
-}
-
-private fun yuv420ToNv21(image: ImageProxy): ByteArray {
-    val width = image.width
-    val height = image.height
-
-    val yPlane = image.planes[0]
-    val uPlane = image.planes[1]
-    val vPlane = image.planes[2]
-
-    val yBuffer = yPlane.buffer
-    val uBuffer = uPlane.buffer
-    val vBuffer = vPlane.buffer
-
-    val yRowStride = yPlane.rowStride
-    val yPixelStride = yPlane.pixelStride
-    val uRowStride = uPlane.rowStride
-    val uPixelStride = uPlane.pixelStride
-    val vRowStride = vPlane.rowStride
-    val vPixelStride = vPlane.pixelStride
-
-    val out = ByteArray(width * height + (width * height) / 2)
-    var pos = 0
-
-    for (row in 0 until height) {
-        val yRowStart = row * yRowStride
-        if (yPixelStride == 1) {
-            yBuffer.position(yRowStart)
-            yBuffer.get(out, pos, width)
-            pos += width
-        } else {
-            for (col in 0 until width) {
-                out[pos++] = yBuffer.get(yRowStart + col * yPixelStride)
-            }
-        }
-    }
-
-    val chromaHeight = height / 2
-    val chromaWidth = width / 2
-    for (row in 0 until chromaHeight) {
-        val uRowStart = row * uRowStride
-        val vRowStart = row * vRowStride
-        for (col in 0 until chromaWidth) {
-            out[pos++] = vBuffer.get(vRowStart + col * vPixelStride)
-            out[pos++] = uBuffer.get(uRowStart + col * uPixelStride)
-        }
-    }
-
-    return out
 }
