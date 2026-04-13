@@ -75,6 +75,7 @@ class MainViewModel @Inject constructor(
         private const val HAND_SIDE_UNKNOWN_EPS = 0.02f
         private const val HAND_STAGE_COOLDOWN_MS = 1200L
         private const val HAND_BOX_IOU_MAX = 0.55f
+        private const val OVERWRITE_WINDOW_MS = 2 * 60 * 60 * 1000L
     }
 
     private enum class HandSide {
@@ -418,14 +419,38 @@ class MainViewModel @Inject constructor(
             return
         }
 
-        val todayRecordResult = morningCheckUseCase.checkTodayRecord(userId)
-        if (todayRecordResult.isFailure) {
+        val currentUser = userRepository.getUserById(userId).getOrNull()
+        val employeeId = currentUser?.employeeId?.trim().orEmpty()
+
+        val latestByEmployee = if (employeeId.isNotBlank()) {
+            val resultByEmployee = recordRepository.getTodayRecordByEmployeeId(employeeId)
+            if (resultByEmployee.isFailure) {
+                Timber.tag("MainViewModel").w(
+                    resultByEmployee.exceptionOrNull(),
+                    "Failed to check today's record by employeeId"
+                )
+            }
+            resultByEmployee.getOrNull()
+        } else {
+            null
+        }
+
+        val latestByUserIdResult = recordRepository.getTodayRecordByUser(userId)
+        if (latestByUserIdResult.isFailure) {
             Timber.tag("MainViewModel").w(
-                todayRecordResult.exceptionOrNull(),
-                "Failed to check today's record, continue normal flow"
+                latestByUserIdResult.exceptionOrNull(),
+                "Failed to check today's record by userId"
             )
         }
-        if (todayRecordResult.getOrNull() != null) {
+        val latestByUserId = latestByUserIdResult.getOrNull()
+
+        val latestTodayRecord = listOfNotNull(latestByEmployee, latestByUserId)
+            .maxByOrNull { it.checkTime }
+
+        val now = System.currentTimeMillis()
+        val withinOverwriteWindow = latestTodayRecord != null &&
+            now - latestTodayRecord.checkTime <= OVERWRITE_WINDOW_MS
+        if (withinOverwriteWindow) {
             morningCheckUseCase.speakAlreadyCheckedToday()
             _uiState.update {
                 it.copy(
@@ -698,7 +723,7 @@ class MainViewModel @Inject constructor(
                 val result = morningCheckUseCase.saveRecord(
                     userId = state.currentUserId,
                     userName = state.currentUserName,
-                    employeeId = user?.employeeId ?: "",
+                    employeeId = user?.employeeId?.trim().orEmpty(),
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,
                     handCheckResult = handCheckResult,
@@ -716,7 +741,7 @@ class MainViewModel @Inject constructor(
                     }.onFailure { e ->
                         Timber.tag("MainViewModel").e(e, "Failed to upload record")
                     }
-                    
+
                     // 上报云端（使用 appScope，不随 ViewModel 销毁而取消）
                     val deviceSn = settingsRepository.getDeviceSn().ifEmpty { DeviceInfo.getDeviceId(appContext) }
                     appScope.launch {
@@ -957,7 +982,7 @@ class MainViewModel @Inject constructor(
                 val record = Record(
                     userId = state.currentUserId,
                     userName = state.currentUserName,
-                    employeeId = user?.employeeId ?: "",
+                    employeeId = user?.employeeId?.trim().orEmpty(),
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,
                     isHandNormal = isHandNormal,
@@ -1004,7 +1029,7 @@ class MainViewModel @Inject constructor(
             }
         }
     }
-    
+
     /**
      * 定时重置状态机
      */

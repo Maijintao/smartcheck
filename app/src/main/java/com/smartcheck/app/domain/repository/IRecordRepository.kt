@@ -15,6 +15,12 @@ interface IRecordRepository {
 
     suspend fun getTodayRecordByUser(userId: Long): Result<Record?>
 
+    suspend fun getFirstTodayRecordByUser(userId: Long): Result<Record?>
+
+    suspend fun getTodayRecordByEmployeeId(employeeId: String): Result<Record?>
+
+    suspend fun getFirstTodayRecordByEmployeeId(employeeId: String): Result<Record?>
+
     suspend fun saveRecord(record: Record): Result<Long>
 
     suspend fun updateRecord(record: Record): Result<Unit>

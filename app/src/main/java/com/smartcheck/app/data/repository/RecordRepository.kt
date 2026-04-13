@@ -78,6 +78,54 @@ class RecordRepository @Inject constructor(
         }
     }
 
+    override suspend fun getFirstTodayRecordByUser(userId: Long): Result<Record?> {
+        return try {
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val todayStart = calendar.timeInMillis
+
+            val firstRecord = recordDao.getFirstTodayRecordByUser(userId, todayStart)
+            Result.success(firstRecord?.toDomain())
+        } catch (e: Exception) {
+            Result.failure(AppError.UnknownError(e.message ?: "getFirstTodayRecordByUser failed"))
+        }
+    }
+
+    override suspend fun getTodayRecordByEmployeeId(employeeId: String): Result<Record?> {
+        return try {
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val todayStart = calendar.timeInMillis
+
+            val todayRecord = recordDao.getLatestTodayRecordByEmployeeId(employeeId, todayStart)
+            Result.success(todayRecord?.toDomain())
+        } catch (e: Exception) {
+            Result.failure(AppError.UnknownError(e.message ?: "getTodayRecordByEmployeeId failed"))
+        }
+    }
+
+    override suspend fun getFirstTodayRecordByEmployeeId(employeeId: String): Result<Record?> {
+        return try {
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val todayStart = calendar.timeInMillis
+
+            val firstRecord = recordDao.getFirstTodayRecordByEmployeeId(employeeId, todayStart)
+            Result.success(firstRecord?.toDomain())
+        } catch (e: Exception) {
+            Result.failure(AppError.UnknownError(e.message ?: "getFirstTodayRecordByEmployeeId failed"))
+        }
+    }
+
     override suspend fun saveRecord(record: Record): Result<Long> {
         return try {
             val id = recordDao.insertRecord(record.toEntity())

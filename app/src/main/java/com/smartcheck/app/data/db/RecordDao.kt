@@ -21,6 +21,15 @@ interface RecordDao {
     @Query("SELECT * FROM check_records WHERE userId = :userId AND checkTime >= :todayStart ORDER BY checkTime DESC LIMIT 1")
     suspend fun getLatestTodayRecordByUser(userId: Long, todayStart: Long): RecordEntity?
 
+    @Query("SELECT * FROM check_records WHERE userId = :userId AND checkTime >= :todayStart ORDER BY checkTime ASC LIMIT 1")
+    suspend fun getFirstTodayRecordByUser(userId: Long, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE TRIM(employeeId) = TRIM(:employeeId) COLLATE NOCASE AND checkTime >= :todayStart ORDER BY checkTime DESC LIMIT 1")
+    suspend fun getLatestTodayRecordByEmployeeId(employeeId: String, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE TRIM(employeeId) = TRIM(:employeeId) COLLATE NOCASE AND checkTime >= :todayStart ORDER BY checkTime ASC LIMIT 1")
+    suspend fun getFirstTodayRecordByEmployeeId(employeeId: String, todayStart: Long): RecordEntity?
+
     @Query("SELECT * FROM check_records WHERE id > :lastId ORDER BY id ASC LIMIT :limit")
     suspend fun getRecordsAfterId(lastId: Long, limit: Int): List<RecordEntity>
     
