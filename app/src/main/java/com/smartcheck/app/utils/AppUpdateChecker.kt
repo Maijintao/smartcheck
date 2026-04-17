@@ -2,6 +2,9 @@ package com.smartcheck.app.utils
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.content.FileProvider
 import com.smartcheck.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +205,8 @@ object AppUpdateChecker {
 
             Timber.i("$TAG APK 下载完成: ${"%.2f".format(apkFile.length() / 1024.0 / 1024.0)} MB")
 
+            validateDownloadedApk(context, apkFile)
+
             withContext(Dispatchers.Main) {
                 val uri = FileProvider.getUriForFile(
                     context,
@@ -219,6 +224,80 @@ object AppUpdateChecker {
             apkFile.delete()
             Timber.e(e, "$TAG 下载/安装失败")
             throw e
+        }
+    }
+
+    private fun validateDownloadedApk(context: Context, apkFile: File) {
+        val packageManager = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+
+        val archiveInfo = packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags)
+            ?: run {
+                apkFile.delete()
+                throw IllegalStateException("更新包无效或已损坏，请重新下载")
+            }
+
+        val archivePackageName = archiveInfo.packageName.orEmpty()
+        if (archivePackageName != context.packageName) {
+            apkFile.delete()
+            throw IllegalStateException("更新包包名不匹配：$archivePackageName")
+        }
+
+        val currentInfo = packageManager.getPackageInfoCompat(context.packageName, flags)
+        val archiveVersionCode = archiveInfo.versionCodeCompat()
+        val currentVersionCode = currentInfo.versionCodeCompat()
+        if (archiveVersionCode <= currentVersionCode) {
+            apkFile.delete()
+            throw IllegalStateException("更新包版本过低：当前=$currentVersionCode，更新包=$archiveVersionCode")
+        }
+
+        if (!hasMatchingSignature(currentInfo, archiveInfo)) {
+            apkFile.delete()
+            throw IllegalStateException("更新包签名与当前应用不一致，请使用同一签名重新打包")
+        }
+    }
+
+    private fun PackageManager.getPackageInfoCompat(packageName: String, flags: Int): PackageInfo {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            getPackageInfo(packageName, flags)
+        }
+    }
+
+    private fun PackageInfo.versionCodeCompat(): Long {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            versionCode.toLong()
+        }
+    }
+
+    private fun hasMatchingSignature(currentInfo: PackageInfo, archiveInfo: PackageInfo): Boolean {
+        val currentSignatures = currentInfo.signaturesCompat()
+        val archiveSignatures = archiveInfo.signaturesCompat()
+        return currentSignatures.isNotEmpty() && currentSignatures == archiveSignatures
+    }
+
+    private fun PackageInfo.signaturesCompat(): List<ByteArray> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = signingInfo ?: return emptyList()
+            signingInfo.apkContentsSigners
+                .map { it.toByteArray() }
+                .sortedBy { it.contentHashCode() }
+        } else {
+            @Suppress("DEPRECATION")
+            signatures
+                ?.map { it.toByteArray() }
+                ?.sortedBy { it.contentHashCode() }
+                ?: emptyList()
         }
     }
 

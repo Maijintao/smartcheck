@@ -1,0 +1,227 @@
+SmartCheck SDK 对外集成指南（External）
+版本：v1.0
+适用对象：第三方集成方、项目交付方、实施工程师
+
+算法版本：
+- 人脸算法：SeetaFace6（当前封装能力：检测/特征/活体）
+- 手部算法：RKNN 模型（hand_check_rk3566.rknn + yiwu_check_rk3566.rknn）
+
+激活方式：
+- 算法 SDK：当前版本默认离线运行，无单独算法授权步骤。
+- 设备/系统激活：如项目启用设备激活，请对接项目提供的激活服务（auth_server.py / 设备激活接口）。
+
+激活接口（已实现）：
+- POST /api/device/activate
+- 请求头：Content-Type: application/json
+- 请求体示例：{"activationCode":"TEST001"}
+- 成功响应：{"code":0,"message":"激活成功","data":{"activated":true}}
+- 失败响应：
+  - code=1001（激活码无效）
+  - code=1002（激活码已被使用）
+
+版本接口（已实现）：
+- GET /api/app/version/latest
+- GET /api/app/version/history
+
+==============================
+一、能力说明
+==============================
+本 SDK 提供以下 AI 能力：
+1. 人脸能力（FaceSdk）
+   - 人脸检测
+   - 人脸特征提取
+   - 特征相似度比对
+   - 活体检测
+2. 手部能力（HandDetector）
+   - 手部检测
+   - 手部异物/伤口风险检测
+
+说明：手部能力依赖 Rockchip NPU 环境（推荐 RK3566 系列真机）。
+说明：人脸能力当前仅提供 arm64-v8a so，目标设备需支持 64 位 ABI。
+
+
+==============================
+二点一、环境要求
+==============================
+1. JDK 17
+2. Android NDK
+3. CMake 3.22.1
+4. minSdk 26 及以上
+
+
+==============================
+二、交付内容
+==============================
+1. SDK 模块
+- face-sdk
+- hand-sdk
+
+2. 必需模型与运行库
+- 人脸模型（face-sdk assets）
+  - face_detector.csta
+  - face_landmarker_pts5.csta
+  - face_recognizer.csta
+  - fas_first.csta
+  - fas_second.csta
+
+- 手部模型（hand-sdk assets）
+  - hand_check_rk3566.rknn
+  - yiwu_check_rk3566.rknn
+
+- RKNN Runtime（hand-sdk jniLibs）
+  - arm64-v8a/librknnrt.so
+  - armeabi-v7a/librknnrt.so
+
+3. Hand SDK 额外前置文件（缺失会导致 native 构建失败）
+- OpenCV Android SDK：third_party/OpenCV-android-sdk/sdk/native/jni/abi-{ANDROID_ABI}
+- RKNN 头文件：hand-sdk/src/main/cpp/rknn_api/rknn_api.h（官方版本）
+
+
+==============================
+三、接入步骤（最小可运行）
+==============================
+步骤 1：添加依赖
+在业务模块的 Gradle 依赖中加入：
+implementation(project(":face-sdk"))
+implementation(project(":hand-sdk"))
+
+步骤 2：应用启动初始化（建议 Application）
+----------------------------------------
+val faceRet = FaceSdk.init(this)
+if (faceRet != 0) {
+    val detail = FaceSdk.getLastInitError() ?: "code=$faceRet"
+    Log.e("SDK", "FaceSdk init failed: $detail")
+}
+
+// Hand SDK 仅建议在 Rockchip 平台初始化
+val hardware = Build.HARDWARE.lowercase()
+val board = Build.BOARD.lowercase()
+val product = Build.PRODUCT.lowercase()
+val isRockchip = hardware.contains("rk") || board.contains("rk") || product.contains("rk")
+if (isRockchip) {
+  val handRet = HandDetector.init(this)
+  if (handRet != 0) {
+    Log.e("SDK", "HandDetector init failed: code=$handRet")
+  }
+} else {
+  Log.w("SDK", "Skip HandDetector init on non-Rockchip device")
+}
+----------------------------------------
+
+步骤 3：在视频帧处理中调用推理接口
+
+人脸检测 + 特征提取：
+----------------------------------------
+val faces = FaceSdk.detect(bitmap)
+if (faces.isNotEmpty()) {
+    val feature = FaceSdk.extractFeature(bitmap)
+    if (feature != null) {
+        // 保存到库，或与已注册特征比对
+    }
+}
+----------------------------------------
+
+相似度比对：
+----------------------------------------
+val similarity = FaceSdk.calculateSimilarity(featureA, featureB)
+----------------------------------------
+
+活体检测：
+----------------------------------------
+val liveness = FaceSdk.detectLiveness(bitmap)
+if (liveness.isLive) {
+    // 活体通过
+}
+----------------------------------------
+
+手部检测：
+----------------------------------------
+val hands = HandDetector.detect(bitmap)
+for (hand in hands) {
+    val risk = hand.hasForeignObject
+    val score = hand.score
+    val label = hand.label
+}
+----------------------------------------
+
+步骤 4：退出时释放资源
+----------------------------------------
+FaceSdk.release()
+HandDetector.release()
+----------------------------------------
+
+
+==============================
+四、接口返回说明
+==============================
+1. init 返回值
+- 0：成功
+- 非 0：失败
+
+1.1 SDK 状态接口（建议补充调用）
+- FaceSdk.isInitialized()：人脸引擎是否初始化完成
+- FaceSdk.getLastInitError()：获取最近一次初始化失败原因
+- DeviceAuth.isActivated()：设备是否已激活
+- DeviceAuth.getActivatedTime()：获取设备激活时间戳
+- DeviceAuth.clearActivation()：清除本地激活状态（重置）
+- DeviceAuth.getActivationServerUrl()：获取当前激活服务器地址
+
+2. FaceSdk 关键返回
+- detect(bitmap)：返回人脸列表（空列表表示未检出）
+- extractFeature(bitmap)：返回 FloatArray 或 null
+- calculateSimilarity(a, b)：返回相似度分值（值越大越相似）
+- detectLiveness(bitmap)：返回活体状态（REAL/SPOOF/FUZZY/DETECTING/ERROR）
+- track(bitmap)：返回跟踪后的人脸列表（视频流场景建议优先使用）
+
+3. HandDetector 关键返回
+- detect(bitmap)：返回手部列表
+  - hasForeignObject：是否有异物/伤口风险
+  - foreignObjects：异物明细
+
+说明：HandDetector.init(context, licenseKey) 中的 licenseKey 参数当前为预留字段，暂未启用在线授权校验。
+
+
+==============================
+五、性能与线程建议
+==============================
+1. 推理请放在后台线程执行（如 Dispatchers.Default）。
+2. 初始化建议串行执行，避免重复 init。
+3. 多线程并发调用人脸接口时，建议业务层增加互斥保护。
+4. 实时视频流建议做抽帧（例如每 2 到 3 帧处理 1 帧）。
+
+
+==============================
+六、常见问题排查
+==============================
+1. FaceSdk 初始化失败
+- 检查模型是否完整、文件名是否一致
+- 检查 so 是否被正确打包
+- 使用 FaceSdk.getLastInitError() 获取详细错误
+
+2. HandDetector 初始化失败
+- 检查是否在 Rockchip 设备上运行
+- 检查 librknnrt.so 是否存在且架构匹配
+- 检查 OpenCV Android SDK 路径是否正确、目录是否完整
+- 检查 rknn_api.h 是否已替换为官方头文件
+- 检查 .rknn 模型是否完整
+
+3. detect 返回空 / 特征提取为 null
+- SDK 未初始化成功
+- 输入图像质量不足（模糊、过暗、角度偏差）
+- 实时场景计算压力高导致帧跳过
+
+
+==============================
+七、集成验收标准（建议）
+==============================
+1. 启动后 init 返回成功。
+2. 摄像头前有人脸时 detect 可稳定返回结果。
+3. 同人特征比对分值高于异人分值，且可区分。
+4. 手部画面中可稳定输出手框；有异物时 hasForeignObject 可触发。
+5. 应用退出后释放资源无崩溃、无重复释放异常。
+
+
+==============================
+八、技术支持信息
+==============================
+如需定制阈值、性能优化、设备适配（RK 平台）、模型替换，请联系项目交付方。

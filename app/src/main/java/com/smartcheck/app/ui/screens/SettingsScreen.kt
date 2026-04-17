@@ -626,10 +626,12 @@ fun SettingsScreen(
                     )
 
                     if (updateError.isNotEmpty()) {
+                        val isInfoMessage = updateError == "已是最新版本" ||
+                            updateError.startsWith("安装已交给系统")
                         Text(
                             text = updateError,
                             fontSize = 13.sp,
-                            color = if (updateError == "已是最新版本") primaryBlue else danger,
+                            color = if (isInfoMessage) primaryBlue else danger,
                             modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp)
                         )
                     }
@@ -748,7 +750,17 @@ fun SettingsScreen(
                                 downloadProgress = -1
                                 downloadSpeed = ""
                                 Timber.e("SettingsScreen 下载失败: ${e.message}")
-                                updateError = "下载失败：${e.message}"
+                                val rawMessage = e.message.orEmpty()
+                                updateError = if (
+                                    rawMessage.contains("未安装此应用") ||
+                                    rawMessage.contains("INSTALL_FAILED", ignoreCase = true)
+                                ) {
+                                    "安装已交给系统，请在系统安装界面完成安装"
+                                } else if (rawMessage.isNotBlank()) {
+                                    "下载失败：$rawMessage"
+                                } else {
+                                    "更新失败，请稍后重试"
+                                }
                             }
                         }
                     },
