@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Hand SDK Demo</string>
+    <string name="demo_title">SmartCheck Hand SDK Demo</string>
+    <string name="action_init">初始化 SDK</string>
+    <string name="action_detect">执行检测</string>
+    <string name="action_release">释放资源</string>
+</resources>

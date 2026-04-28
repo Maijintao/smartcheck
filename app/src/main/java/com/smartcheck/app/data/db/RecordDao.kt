@@ -1,0 +1,50 @@
+package com.smartcheck.app.data.db
+
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface RecordDao {
+    
+    @Query("SELECT * FROM check_records ORDER BY checkTime DESC LIMIT :limit")
+    fun getRecentRecords(limit: Int = 100): Flow<List<RecordEntity>>
+    
+    @Query("SELECT * FROM check_records WHERE userId = :userId ORDER BY checkTime DESC")
+    fun getRecordsByUser(userId: Long): Flow<List<RecordEntity>>
+    
+    @Query("SELECT * FROM check_records WHERE checkTime >= :startTime AND checkTime <= :endTime ORDER BY checkTime DESC")
+    fun getRecordsByTimeRange(startTime: Long, endTime: Long): Flow<List<RecordEntity>>
+
+    @Query("SELECT * FROM check_records WHERE checkTime >= :startTime AND checkTime <= :endTime ORDER BY checkTime DESC")
+    suspend fun getRecordsByTimeRangeSync(startTime: Long, endTime: Long): List<RecordEntity>
+
+    @Query("SELECT * FROM check_records WHERE userId = :userId AND checkTime >= :todayStart ORDER BY checkTime DESC LIMIT 1")
+    suspend fun getLatestTodayRecordByUser(userId: Long, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE userId = :userId AND checkTime >= :todayStart ORDER BY checkTime ASC LIMIT 1")
+    suspend fun getFirstTodayRecordByUser(userId: Long, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE TRIM(employeeId) = TRIM(:employeeId) COLLATE NOCASE AND checkTime >= :todayStart ORDER BY checkTime DESC LIMIT 1")
+    suspend fun getLatestTodayRecordByEmployeeId(employeeId: String, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE TRIM(employeeId) = TRIM(:employeeId) COLLATE NOCASE AND checkTime >= :todayStart ORDER BY checkTime ASC LIMIT 1")
+    suspend fun getFirstTodayRecordByEmployeeId(employeeId: String, todayStart: Long): RecordEntity?
+
+    @Query("SELECT * FROM check_records WHERE id > :lastId ORDER BY id ASC LIMIT :limit")
+    suspend fun getRecordsAfterId(lastId: Long, limit: Int): List<RecordEntity>
+    
+    @Insert
+    suspend fun insertRecord(record: RecordEntity): Long
+
+    @Update
+    suspend fun updateRecord(record: RecordEntity)
+
+    @Query("SELECT * FROM check_records WHERE id = :recordId")
+    suspend fun getRecordById(recordId: Long): RecordEntity?
+    
+    @Query("DELETE FROM check_records WHERE checkTime < :beforeTime")
+    suspend fun deleteOldRecords(beforeTime: Long)
+
+    @Query("DELETE FROM check_records")
+    suspend fun deleteAllRecords()
+}

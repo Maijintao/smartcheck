@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">畅识调试</string>
+    <string name="button_start">启动服务</string>
+    <string name="button_started">服务已启动</string>
+    <string name="button_started_failed">服务启动失败</string>
+    <string name="input_passphrase">请输入激活码</string>
+    <string name="button_register">激活</string>
+    <string name="button_registered">已激活</string>
+    <string name="operation_logs">操作日志</string>
+    <string name="start_predict">识别</string>
+    <string name="learn_apple">学习苹果</string>
+    <string name="learn_strawberry">学习草莓</string>
+    <string name="learn_banana">学习香蕉</string>
+    <string name="reset_learning">重置识别</string>
+    <string name="export_learning">导出学习</string>
+    <string name="import_learning">导入学习</string>
+    <string name="video_calibration">相机裁剪</string>
+    <string name="cancel">返回</string>
+    <string name="crop">裁剪</string>
+</resources>

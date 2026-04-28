@@ -1,0 +1,26 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+.gradle/
+build/
+*.log
+
+# Large files (exceed GitHub 100 MB limit)
+*.zip
+hand-sdk/dist/
+sdk-packages/
+

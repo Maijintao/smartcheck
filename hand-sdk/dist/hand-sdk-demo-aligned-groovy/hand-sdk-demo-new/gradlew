@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+if [ "$APP_HOME" = "" ]; then
+  APP_HOME=$(dirname "$0")
+fi
+
+if [ "$JAVA_HOME" = "" ]; then
+  echo "Error: JAVA_HOME is not set."
+  exit 1
+fi
+
+exec "$JAVA_HOME/bin/java" -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"

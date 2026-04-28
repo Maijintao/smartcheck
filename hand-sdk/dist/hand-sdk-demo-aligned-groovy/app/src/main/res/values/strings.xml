@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Hand SDK Demo Aligned</string>
+    <string name="demo_title">SmartCheck Hand SDK Demo</string>
+    <string name="action_init">Init SDK</string>
+    <string name="action_detect">Run Detect</string>
+    <string name="action_release">Release SDK</string>
+</resources>

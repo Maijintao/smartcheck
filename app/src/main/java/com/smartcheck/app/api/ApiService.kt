@@ -1,0 +1,1563 @@
+package com.smartcheck.app.api
+
+import android.content.Context
+import com.smartcheck.app.api.model.*
+import com.smartcheck.app.data.db.*
+import com.smartcheck.app.data.repository.AdminAuthRepository
+import com.smartcheck.app.data.repository.RecordRepository
+import com.smartcheck.app.data.repository.UserRepository
+import com.smartcheck.app.domain.model.User
+import com.smartcheck.app.utils.FileUtil
+import dagger.hilt.android.qualifiers.ApplicationContext
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
+import io.ktor.server.plugins.*
+import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.serialization.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.utils.io.*
+import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.serialization.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import timber.log.Timber
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * API 服务
+ * 处理所有 HTTP 接口请求
+ */
+@Singleton
+class ApiService @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val adminAuthRepository: AdminAuthRepository,
+    private val recordRepository: RecordRepository,
+    private val userRepository: UserRepository,
+    private val faceEngine: com.smartcheck.app.ml.FaceEngine,
+    private val apiTokenDao: ApiTokenDao,
+    private val apiAccessLogDao: ApiAccessLogDao,
+    private val systemUserDao: SystemUserDao
+) {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * 配置路由
+     */
+    fun configureRouting(routing: Routing) {
+        routing {
+            // 健康检查（无需认证）
+            get("/health") {
+                call.respond(ApiResponse.success(HealthStatusResponse("ok", System.currentTimeMillis())))
+            }
+
+            // 认证相关
+            route("/api/auth") {
+                post("/login") {
+                    handleLogin(call)
+                }
+            }
+
+            // 账号同步（需要认证）
+            authenticate("auth-jwt") {
+                route("/api/users") {
+                    post("/sync") {
+                        handleSyncUsers(call)
+                    }
+                }
+            }
+
+            // 需要认证的接口
+            authenticate("auth-jwt") {
+                route("/api/records") {
+                    get {
+                        handleGetRecords(call)
+                    }
+
+                    get("/sync") {
+                        handleSyncRecords(call)
+                    }
+
+                    get("/{id}") {
+                        handleGetRecordById(call)
+                    }
+
+                    get("/statistics") {
+                        handleGetStatistics(call)
+                    }
+
+                    post("/export") {
+                        handleExportRecords(call)
+                    }
+                }
+
+                // 员工信息
+                route("/api/employees") {
+                    get {
+                        handleGetEmployees(call)
+                    }
+
+                    get("/sync") {
+                        handleSyncEmployees(call)
+                    }
+
+                    post("/import") {
+                        handleImportEmployees(call)
+                    }
+
+                    post("/upload-photo") {
+                        handleUploadEmployeePhoto(call)
+                    }
+
+                    post("/upload-cert-photo") {
+                        handleUploadHealthCertPhoto(call)
+                    }
+
+                    delete("/{employeeId}") {
+                        handleDeleteEmployee(call)
+                    }
+
+                    delete("/clear-all") {
+                        handleClearAllEmployees(call)
+                    }
+                }
+
+                // 图片下载
+                get("/api/images/{filename}") {
+                    handleGetImage(call)
+                }
+
+                get("/api/employee-images/{filename}") {
+                    handleGetEmployeeImage(call)
+                }
+
+                get("/api/downloads/{filename}") {
+                    handleDownloadFile(call)
+                }
+            }
+        }
+    }
+
+    /**
+     * 处理登录请求
+     */
+    private suspend fun handleLogin(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val request = call.receive<LoginRequest>()
+
+            // 验证用户名密码
+            val isValid = adminAuthRepository.verifyPassword(request.username, request.password)
+
+            if (!isValid) {
+                responseCode = ErrorCodes.UNAUTHORIZED
+                errorMessage = "用户名或密码错误"
+                call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<LoginResponse>(responseCode, errorMessage))
+                return
+            }
+
+            // 获取用户信息（这里简化处理，实际应该从数据库查询）
+            val userId = 1L // 管理员固定ID
+
+            // 生成 Token
+            val token = JwtUtil.generateToken(userId, request.username)
+            val expiresIn = JwtUtil.getExpirationTime()
+
+            // 保存 Token 到数据库
+            val tokenEntity = ApiTokenEntity(
+                token = token,
+                userId = userId,
+                username = request.username,
+                expiresAt = System.currentTimeMillis() + expiresIn * 1000
+            )
+            apiTokenDao.insertToken(tokenEntity)
+
+            val response = LoginResponse(
+                token = token,
+                expiresIn = expiresIn,
+                user = UserInfo(id = userId, username = request.username, name = "管理员")
+            )
+
+            Timber.d("Login success: ${request.username}")
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Login failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<LoginResponse>(responseCode, "登录失败: ${e.message}"))
+        } finally {
+            // 记录访问日志
+            logAccess(call, "/api/auth/login", "POST", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理获取记录列表
+     */
+    private suspend fun handleGetRecords(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            // 获取查询参数
+            val startDate = call.request.queryParameters["startDate"]
+            val endDate = call.request.queryParameters["endDate"]
+            val employeeId = call.request.queryParameters["employeeId"]
+            val isPassed = call.request.queryParameters["isPassed"]?.toBooleanStrictOrNull()
+            val isTempNormal = call.request.queryParameters["isTempNormal"]?.toBooleanStrictOrNull()
+            val isHandNormal = call.request.queryParameters["isHandNormal"]?.toBooleanStrictOrNull()
+            val includeImages = call.request.queryParameters["includeImages"]?.toBoolean() ?: false
+            val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+            val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull() ?: 20
+
+            // 参数校验
+            if (startDate == null || endDate == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<PageResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "startDate 和 endDate 不能为空"))
+                return
+            }
+
+            // 解析日期
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
+            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
+
+            // 查询记录
+            val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
+
+            // 过滤
+            var filteredRecords = records
+            if (!employeeId.isNullOrBlank()) {
+                filteredRecords = filteredRecords.filter { it.employeeId == employeeId }
+            }
+            if (isPassed != null) {
+                filteredRecords = filteredRecords.filter { it.isPassed == isPassed }
+            }
+            if (isTempNormal != null) {
+                filteredRecords = filteredRecords.filter { it.isTempNormal == isTempNormal }
+            }
+            if (isHandNormal != null) {
+                filteredRecords = filteredRecords.filter { it.isHandNormal == isHandNormal }
+            }
+
+            // 分页
+            val total = filteredRecords.size
+            val totalPages = (total + pageSize - 1) / pageSize
+            val pagedRecords = filteredRecords
+                .drop((page - 1) * pageSize)
+                .take(pageSize)
+
+            // 转换为响应对象
+            val recordResponses = pagedRecords.map { it.toResponse(includeImages) }
+
+            val response = PageResponse(
+                list = recordResponses,
+                pagination = Pagination(
+                    page = page,
+                    pageSize = pageSize,
+                    total = total.toLong(),
+                    totalPages = totalPages
+                )
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get records failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<PageResponse<RecordResponse>>(ErrorCodes.INTERNAL_ERROR, "查询失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/records", "GET", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理单条记录查询
+     */
+    private suspend fun handleGetRecordById(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            val id = call.parameters["id"]?.toLongOrNull()
+            val includeImages = call.request.queryParameters["includeImages"]?.toBoolean() ?: true
+
+            if (id == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<RecordResponse>(ErrorCodes.INVALID_PARAMS, "记录ID无效"))
+                return
+            }
+
+            val record = recordRepository.getRecordByIdSync(id)
+
+            if (record == null) {
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<RecordResponse>(ErrorCodes.NOT_FOUND, "记录不存在"))
+                return
+            }
+
+            call.respond(ApiResponse.success(record.toResponse(includeImages)))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get record by id failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<RecordResponse>(ErrorCodes.INTERNAL_ERROR, "查询失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/records/{id}", "GET", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理增量同步
+     */
+    private suspend fun handleSyncRecords(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            val lastRecordId = call.request.queryParameters["lastRecordId"]?.toLongOrNull()
+            val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
+
+            if (lastRecordId == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<SyncResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "lastRecordId 不能为空"))
+                return
+            }
+
+            // 查询ID大于 lastRecordId 的记录
+            val records = recordRepository.getRecordsAfterId(lastRecordId, limit)
+
+            val recordResponses = records.map { it.toResponse(false) }
+
+            val response = SyncResponse(
+                list = recordResponses,
+                hasMore = records.size >= limit,
+                lastRecordId = records.lastOrNull()?.id ?: lastRecordId,
+                syncTime = System.currentTimeMillis()
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Sync records failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<SyncResponse<RecordResponse>>(ErrorCodes.INTERNAL_ERROR, "同步失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/records/sync", "GET", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理统计请求
+     */
+    private suspend fun handleGetStatistics(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            val startDate = call.request.queryParameters["startDate"]
+            val endDate = call.request.queryParameters["endDate"]
+
+            if (startDate == null || endDate == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<StatisticsResponse>(ErrorCodes.INVALID_PARAMS, "startDate 和 endDate 不能为空"))
+                return
+            }
+
+            // 解析日期
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
+            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
+
+            // 查询记录
+            val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
+
+            // 统计
+            val totalCheck = records.size.toLong()
+            val passed = records.count { it.isPassed }.toLong()
+            val failed = records.count { !it.isPassed }.toLong()
+            val tempAbnormal = records.count { !it.isTempNormal }.toLong()
+            val handAbnormal = records.count { !it.isHandNormal }.toLong()
+
+            // 每日统计
+            val dailyStats = records.groupBy {
+                dateFormat.format(Date(it.checkTime))
+            }.map { (date, dayRecords) ->
+                DailyStat(
+                    date = date,
+                    total = dayRecords.size.toLong(),
+                    passed = dayRecords.count { r -> r.isPassed }.toLong(),
+                    failed = dayRecords.count { r -> !r.isPassed }.toLong(),
+                    tempAbnormal = dayRecords.count { r -> !r.isTempNormal }.toLong(),
+                    handAbnormal = dayRecords.count { r -> !r.isHandNormal }.toLong()
+                )
+            }.sortedBy { it.date }
+
+            val response = StatisticsResponse(
+                totalCheck = totalCheck,
+                passed = passed,
+                failed = failed,
+                tempAbnormal = tempAbnormal,
+                handAbnormal = handAbnormal,
+                dailyStats = dailyStats
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get statistics failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<StatisticsResponse>(ErrorCodes.INTERNAL_ERROR, "统计失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/records/statistics", "GET", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理导出请求
+     */
+    private suspend fun handleExportRecords(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            val request = call.receive<ExportRequest>()
+            val startDate = request.startDate
+            val endDate = request.endDate
+            val format = request.format
+
+            if (startDate.isBlank() || endDate.isBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<ExportResponse>(ErrorCodes.INVALID_PARAMS, "startDate 和 endDate 不能为空"))
+                return
+            }
+
+            // 解析日期
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
+            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
+
+            // 查询记录
+            val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
+
+            // 生成文件名
+            val fileName = "records_${startDate}_${endDate}.csv"
+            val file = File(context.cacheDir, fileName)
+
+            // 生成 CSV
+            file.bufferedWriter().use { writer ->
+                // 表头
+                writer.write("ID,姓名,工号,检测时间,体温,体温正常,手部正常,是否通过,手部状态,健康证状态,症状,备注\n")
+
+                // 数据
+                records.forEach { record ->
+                    val dateStr = dateFormat.format(Date(record.checkTime))
+                    writer.write("${record.id},${record.userName},${record.employeeId},$dateStr,${record.temperature},${record.isTempNormal},${record.isHandNormal},${record.isPassed},${record.handStatus},${record.healthCertStatus},${record.symptomFlags},${record.remark}\n")
+                }
+            }
+
+            val response = ExportResponse(
+                downloadUrl = "/api/downloads/$fileName",
+                expiresAt = System.currentTimeMillis() + 3600 * 1000 // 1小时有效期
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Export records failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<ExportResponse>(ErrorCodes.INTERNAL_ERROR, "导出失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/records/export", "POST", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理获取员工列表
+     */
+    private suspend fun handleGetEmployees(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            Timber.d("handleGetEmployees: 开始获取员工列表")
+            
+            val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+            val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull()?.coerceAtMost(100) ?: 20
+            val employeeId = call.request.queryParameters["employeeId"]
+            val isActive = call.request.queryParameters["isActive"]?.toBooleanStrictOrNull()
+
+            Timber.d("handleGetEmployees: page=$page, pageSize=$pageSize, employeeId=$employeeId, isActive=$isActive")
+
+            // 获取所有员工 - 使用 first() 获取第一个值
+            val allUsers = userRepository.observeAllUsers().first()
+
+            Timber.d("handleGetEmployees: 总用户数 = ${allUsers.size}")
+
+            // 过滤
+            var filteredUsers: List<User> = allUsers
+            if (!employeeId.isNullOrBlank()) {
+                filteredUsers = filteredUsers.filter { it.employeeId == employeeId }
+            }
+            if (isActive != null) {
+                filteredUsers = filteredUsers.filter { it.isActive == isActive }
+            }
+
+            // 转换为响应对象
+            val employeeResponses = filteredUsers.map { it.toEmployeeResponse() }
+
+            // 分页
+            val total = employeeResponses.size
+            val totalPages = (total + pageSize - 1) / pageSize
+            val pagedEmployees = employeeResponses
+                .drop((page - 1) * pageSize)
+                .take(pageSize)
+
+            val response = PageResponse(
+                list = pagedEmployees,
+                pagination = Pagination(
+                    page = page,
+                    pageSize = pageSize,
+                    total = total.toLong(),
+                    totalPages = totalPages
+                )
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get employees failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<PageResponse<EmployeeResponse>>(ErrorCodes.INTERNAL_ERROR, "查询失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees", "GET", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理员工增量同步
+     */
+    private suspend fun handleSyncEmployees(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val lastEmployeeId = call.request.queryParameters["lastEmployeeId"]?.toLongOrNull() ?: 0
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceAtMost(500) ?: 100
+
+            val employees = userRepository.getUsersAfterId(lastEmployeeId, limit)
+            val employeeResponses = employees.map { it.toEmployeeResponse() }
+
+            val lastId = employees.lastOrNull()?.id ?: lastEmployeeId
+
+            val response = SyncResponse(
+                list = employeeResponses,
+                hasMore = employees.size >= limit,
+                lastRecordId = lastId,
+                syncTime = System.currentTimeMillis()
+            )
+
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Sync employees failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<SyncResponse<EmployeeResponse>>(ErrorCodes.INTERNAL_ERROR, "同步失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/sync", "GET", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理批量导入员工
+     */
+    private suspend fun handleImportEmployees(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val request = call.receive<EmployeeImportRequest>()
+            
+            if (request.employees.isEmpty()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<EmployeeImportResponse>(responseCode, "导入列表不能为空"))
+                return
+            }
+
+            if (request.employees.size > 100) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<EmployeeImportResponse>(responseCode, "单次导入列表不能超过100条"))
+                return
+            }
+
+            Timber.d("开始导入 ${request.employees.size} 个员工 (incremental=${request.incremental})")
+            
+            val details = mutableListOf<EmployeeImportDetail>()
+            var successCount = 0
+            var failedCount = 0
+            val incremental = request.incremental
+
+            // 初始化人脸引擎（一次）
+            if (!com.smartcheck.sdk.face.FaceSdk.isInitialized()) {
+                val initRet = com.smartcheck.sdk.face.FaceSdk.init(context)
+                if (initRet != 0) {
+                    Timber.e("人脸引擎初始化失败: ${com.smartcheck.sdk.face.FaceSdk.getLastInitError()}")
+                    call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<EmployeeImportResponse>(ErrorCodes.INTERNAL_ERROR, "人脸引擎初始化失败"))
+                    return
+                }
+            }
+
+            // 检查同批次重复工号
+            val employeeIds = request.employees.map { it.employeeId.trim() }
+            val duplicates = employeeIds.groupBy { it }.filter { it.value.size > 1 }.keys
+            if (duplicates.isNotEmpty()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<EmployeeImportResponse>(responseCode, "导入列表中存在重复工号: ${duplicates.joinToString()}"))
+                return
+            }
+
+            // 记录已处理的工号（包含数据库中已存在的）
+            val processedIds = mutableSetOf<String>()
+
+            for (item in request.employees) {
+                try {
+                    val employeeId = item.employeeId.trim()
+                    
+                    // 检查是否在同批次中重复
+                    if (employeeId in processedIds) {
+                        details.add(EmployeeImportDetail(
+                            employeeId = employeeId,
+                            status = "failed",
+                            message = "导入列表中工号重复",
+                            userId = null
+                        ))
+                        failedCount++
+                        continue
+                    }
+                    processedIds.add(employeeId)
+
+                    // 检查是否已存在（包括手动注册的员工）
+                    val existingUser = userRepository.getUserByEmployeeId(employeeId).getOrNull()
+                    if (existingUser != null) {
+                        if (incremental) {
+                            // 增量模式：跳过已存在的员工
+                            details.add(EmployeeImportDetail(
+                                employeeId = employeeId,
+                                status = "skipped",
+                                message = "员工工号已存在，跳过",
+                                userId = existingUser.id
+                            ))
+                            successCount++
+                            continue
+                        } else {
+                            // 非增量模式：更新已存在的员工
+                            // 处理人脸图片更新
+                            var faceEmbedding = existingUser.faceEmbedding
+                            var faceImagePath = existingUser.faceImagePath
+                            
+                            if (!item.faceImageBase64.isNullOrBlank()) {
+                                try {
+                                    val imageBytes = android.util.Base64.decode(item.faceImageBase64, android.util.Base64.DEFAULT)
+                                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                    
+                                    if (bitmap != null) {
+                                        val faces = com.smartcheck.sdk.face.FaceSdk.detect(bitmap)
+                                        if (faces.isNotEmpty()) {
+                                            val feature = com.smartcheck.sdk.face.FaceSdk.extractFeature(bitmap)
+                                            if (feature != null) {
+                                                faceEmbedding = floatArrayToByteArray(feature)
+                                                val faceFileName = "face_emp_${System.currentTimeMillis()}_${existingUser.id}.jpg"
+                                                val faceFile = java.io.File(FileUtil.getRecordsDir(context), faceFileName)
+                                                java.io.FileOutputStream(faceFile).use { out ->
+                                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                                }
+                                                faceImagePath = faceFileName
+                                            }
+                                        }
+                                        bitmap.recycle()
+                                    }
+                                } catch (e: Exception) {
+                                    Timber.w(e, "更新人脸图片失败: $employeeId")
+                                }
+                            }
+
+                            // 处理健康证图片更新
+                            var healthCertImagePath = existingUser.healthCertImagePath
+                            if (!item.healthCertImageBase64.isNullOrBlank()) {
+                                try {
+                                    val imageBytes = android.util.Base64.decode(item.healthCertImageBase64, android.util.Base64.DEFAULT)
+                                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                    
+                                    if (bitmap != null) {
+                                        val certFileName = "cert_emp_${System.currentTimeMillis()}_${existingUser.id}.jpg"
+                                        val certFile = java.io.File(FileUtil.getRecordsDir(context), certFileName)
+                                        java.io.FileOutputStream(certFile).use { out ->
+                                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                        }
+                                        healthCertImagePath = certFileName
+                                        bitmap.recycle()
+                                    }
+                                } catch (e: Exception) {
+                                    Timber.w(e, "更新健康证图片失败: $employeeId")
+                                }
+                            }
+
+                            val updatedUser = existingUser.copy(
+                                name = item.name.trim(),
+                                idCardNumber = item.idCardNumber.trim(),
+                                phone = item.phone,
+                                position = item.position,
+                                department = item.department,
+                                healthCertCode = item.healthCertCode,
+                                faceImagePath = faceImagePath ?: existingUser.faceImagePath,
+                                faceEmbedding = faceEmbedding ?: existingUser.faceEmbedding,
+                                healthCertImagePath = healthCertImagePath ?: existingUser.healthCertImagePath,
+                                healthCertStartDate = item.healthCertStartDate,
+                                healthCertEndDate = item.healthCertEndDate,
+                                isActive = item.isActive
+                            )
+
+                            val updateResult = userRepository.updateUser(updatedUser)
+                            if (updateResult.isFailure) {
+                                details.add(EmployeeImportDetail(
+                                    employeeId = employeeId,
+                                    status = "failed",
+                                    message = "更新员工失败: ${updateResult.exceptionOrNull()?.message}",
+                                    userId = existingUser.id
+                                ))
+                                failedCount++
+                                continue
+                            }
+
+                            details.add(EmployeeImportDetail(
+                                employeeId = employeeId,
+                                status = "updated",
+                                message = "更新成功",
+                                userId = existingUser.id
+                            ))
+                            successCount++
+                            continue
+                        }
+                    }
+
+                    // 创建员工
+                    val user = User(
+                        name = item.name.trim(),
+                        employeeId = employeeId,
+                        idCardNumber = item.idCardNumber.trim(),
+                        phone = item.phone,
+                        position = item.position,
+                        department = item.department,
+                        healthCertCode = item.healthCertCode,
+                        healthCertImagePath = "",
+                        healthCertStartDate = item.healthCertStartDate,
+                        healthCertEndDate = item.healthCertEndDate,
+                        isActive = item.isActive,
+                        createdAt = System.currentTimeMillis()
+                    )
+
+                    val userId = userRepository.createUser(user).getOrNull()
+                    if (userId == null || userId <= 0) {
+                        details.add(EmployeeImportDetail(
+                            employeeId = employeeId,
+                            status = "failed",
+                            message = "创建用户失败",
+                            userId = null
+                        ))
+                        failedCount++
+                        continue
+                    }
+
+                    // 处理人脸图片
+                    var faceEmbedding: ByteArray? = null
+                    var faceImagePath: String? = null
+                    
+                    if (!item.faceImageBase64.isNullOrBlank()) {
+                        try {
+                            val imageBytes = android.util.Base64.decode(item.faceImageBase64, android.util.Base64.DEFAULT)
+                            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            
+                            if (bitmap != null) {
+                                val faces = com.smartcheck.sdk.face.FaceSdk.detect(bitmap)
+                                if (faces.isNotEmpty()) {
+                                    val feature = com.smartcheck.sdk.face.FaceSdk.extractFeature(bitmap)
+                                    if (feature != null) {
+                                        faceEmbedding = floatArrayToByteArray(feature)
+                                        val faceFileName = "face_emp_${System.currentTimeMillis()}_${userId}.jpg"
+                                        val faceFile = java.io.File(FileUtil.getRecordsDir(context), faceFileName)
+                                        java.io.FileOutputStream(faceFile).use { out ->
+                                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                        }
+                                        faceImagePath = faceFileName
+                                    } else {
+                                        Timber.w("无法提取人脸特征: $employeeId")
+                                    }
+                                } else {
+                                    Timber.w("图片中未检测到人脸: $employeeId")
+                                }
+                                bitmap.recycle()
+                            }
+                        } catch (e: Exception) {
+                            Timber.e(e, "处理人脸图片失败: $employeeId")
+                        }
+                    }
+
+                    // 处理健康证图片
+                    var healthCertImagePath: String? = null
+                    if (!item.healthCertImageBase64.isNullOrBlank()) {
+                        try {
+                            val imageBytes = android.util.Base64.decode(item.healthCertImageBase64, android.util.Base64.DEFAULT)
+                            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            
+                            if (bitmap != null) {
+                                val certFileName = "cert_emp_${System.currentTimeMillis()}_${userId}.jpg"
+                                val certFile = java.io.File(FileUtil.getRecordsDir(context), certFileName)
+                                java.io.FileOutputStream(certFile).use { out ->
+                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                }
+                                healthCertImagePath = certFileName
+                                bitmap.recycle()
+                            }
+                        } catch (e: Exception) {
+                            Timber.e(e, "处理健康证图片失败: $employeeId")
+                        }
+                    }
+
+                    // 保存用户信息
+                    if (faceEmbedding != null || faceImagePath != null || healthCertImagePath != null) {
+                        val updatedUser = user.copy(
+                            id = userId,
+                            faceEmbedding = faceEmbedding,
+                            faceImagePath = faceImagePath,
+                            healthCertImagePath = healthCertImagePath ?: ""
+                        )
+                        userRepository.updateUser(updatedUser)
+                    }
+
+                    details.add(EmployeeImportDetail(
+                        employeeId = employeeId,
+                        status = "success",
+                        message = when {
+                            faceEmbedding != null -> "导入成功（含人脸特征）"
+                            healthCertImagePath != null -> "导入成功（含健康证图片）"
+                            else -> "导入成功"
+                        },
+                        userId = userId
+                    ))
+                    successCount++
+                    Timber.d("导入员工成功: ${item.name}, employeeId=$employeeId, faceEmbedding=${faceEmbedding != null}")
+
+                } catch (e: Exception) {
+                    Timber.e(e, "导入员工失败: ${item.employeeId}")
+                    details.add(EmployeeImportDetail(
+                        employeeId = item.employeeId,
+                        status = "failed",
+                        message = e.message ?: "导入失败",
+                        userId = null
+                    ))
+                    failedCount++
+                }
+            }
+
+            val response = EmployeeImportResponse(
+                total = request.employees.size,
+                success = successCount,
+                failed = failedCount,
+                details = details
+            )
+
+            Timber.d("导入完成: total=${response.total}, success=$successCount, failed=$failedCount")
+            
+            // 刷新人脸特征缓存
+            if (successCount > 0) {
+                try {
+                    faceEngine.refreshUserCache()
+                    Timber.d("人脸特征缓存已刷新")
+                } catch (e: Exception) {
+                    Timber.e(e, "刷新人脸缓存失败")
+                }
+            }
+            
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Import employees failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<EmployeeImportResponse>(ErrorCodes.INTERNAL_ERROR, "导入失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/import", "POST", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理删除员工
+     * DELETE /api/employees/{employeeId}
+     */
+    private suspend fun handleDeleteEmployee(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+        var loggedEmployeeId = "unknown"
+
+        try {
+            val employeeId = call.parameters["employeeId"]
+            loggedEmployeeId = employeeId ?: "unknown"
+            if (employeeId.isNullOrBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "工号不能为空"))
+                return
+            }
+
+            val trimmedId = employeeId.trim()
+            loggedEmployeeId = trimmedId
+            val existingUser = userRepository.getUserByEmployeeId(trimmedId).getOrNull()
+            if (existingUser == null) {
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "员工不存在: $trimmedId"))
+                return
+            }
+
+            val deleteResult = userRepository.deleteUserByEmployeeId(trimmedId)
+            if (deleteResult.isFailure) {
+                responseCode = ErrorCodes.INTERNAL_ERROR
+                errorMessage = deleteResult.exceptionOrNull()?.message ?: "删除失败"
+                call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, errorMessage!!))
+                return
+            }
+
+            // 刷新人脸特征缓存
+            try {
+                faceEngine.refreshUserCache()
+            } catch (e: Exception) {
+                Timber.w(e, "刷新人脸缓存失败")
+            }
+
+            Timber.d("删除员工成功: $trimmedId")
+            call.respond(ApiResponse.success(DeleteEmployeeResponse(employeeId = trimmedId, deleted = true)))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Delete employee failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(ErrorCodes.INTERNAL_ERROR, "删除失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/$loggedEmployeeId", "DELETE", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理清空所有员工
+     * DELETE /api/employees/clear-all
+     */
+    private suspend fun handleClearAllEmployees(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val deleteResult = userRepository.deleteAllUsers()
+            if (deleteResult.isFailure) {
+                responseCode = ErrorCodes.INTERNAL_ERROR
+                errorMessage = deleteResult.exceptionOrNull()?.message ?: "清空失败"
+                call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, errorMessage!!))
+                return
+            }
+
+            // 刷新人脸特征缓存
+            try {
+                faceEngine.refreshUserCache()
+            } catch (e: Exception) {
+                Timber.w(e, "刷新人脸缓存失败")
+            }
+
+            Timber.d("清空所有员工成功")
+            call.respond(ApiResponse.success(ClearAllEmployeesResponse(deleted = true, message = "所有员工已清空")))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Clear all employees failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(ErrorCodes.INTERNAL_ERROR, "清空失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/clear-all", "DELETE", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理上传员工照片
+     * 请求格式：{"fileName": "face_001.jpg", "imageBase64": "..."}
+     * 文件名格式：face_{工号}.jpg
+     */
+    private suspend fun handleUploadEmployeePhoto(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val request = call.receive<PhotoUploadRequest>()
+            
+            val fileNameStr = request.fileName
+            if (fileNameStr.isBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名不能为空"))
+                return
+            }
+
+            if (!fileNameStr.matches(Regex("^face_[A-Za-z0-9_]+\\.jpg$", RegexOption.IGNORE_CASE))) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名格式错误，应为 face_{工号}.jpg，例如 face_001.jpg"))
+                return
+            }
+
+            if (request.imageBase64.isBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片不能为空"))
+                return
+            }
+
+            val employeeId = fileNameStr.removePrefix("face_").removeSuffix(".jpg").lowercase()
+
+            val user = userRepository.getUserByEmployeeId(employeeId).getOrNull()
+            if (user == null) {
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "员工工号不存在: $employeeId，请先导入员工信息"))
+                return
+            }
+
+            val imageBytes = android.util.Base64.decode(request.imageBase64, android.util.Base64.DEFAULT)
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            if (bitmap == null) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片格式错误"))
+                return
+            }
+
+            if (!com.smartcheck.sdk.face.FaceSdk.isInitialized()) {
+                val initRet = com.smartcheck.sdk.face.FaceSdk.init(context)
+                if (initRet != 0) {
+                    bitmap.recycle()
+                    Timber.e("人脸引擎初始化失败")
+                    call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(ErrorCodes.INTERNAL_ERROR, "人脸引擎初始化失败"))
+                    return
+                }
+            }
+
+            val faces = com.smartcheck.sdk.face.FaceSdk.detect(bitmap)
+            if (faces.isEmpty()) {
+                bitmap.recycle()
+                Timber.w("图片中未检测到人脸: $employeeId")
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(ErrorCodes.VALIDATION_FAILED, "图片中未检测到人脸"))
+                return
+            }
+
+            val feature = com.smartcheck.sdk.face.FaceSdk.extractFeature(bitmap)
+            if (feature == null) {
+                bitmap.recycle()
+                Timber.w("无法提取人脸特征: $employeeId")
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(ErrorCodes.VALIDATION_FAILED, "无法提取人脸特征"))
+                return
+            }
+
+            val faceEmbedding = floatArrayToByteArray(feature)
+            val savedFileName = "face_emp_${System.currentTimeMillis()}_${user.id}.jpg"
+            val savedFile = java.io.File(FileUtil.getRecordsDir(context), savedFileName)
+            java.io.FileOutputStream(savedFile).use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+
+            val updatedUser = user.copy(faceEmbedding = faceEmbedding, faceImagePath = savedFileName)
+            userRepository.updateUser(updatedUser)
+            faceEngine.refreshUserCache()
+
+            Timber.d("上传员工照片成功: employeeId=$employeeId, userId=${user.id}")
+
+            call.respond(ApiResponse.success(mapOf(
+                "employeeId" to employeeId,
+                "userId" to user.id,
+                "faceImagePath" to savedFileName,
+                "message" to "上传成功，已提取人脸特征"
+            )))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Upload employee photo failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(ErrorCodes.INTERNAL_ERROR, "上传失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/upload-photo", "POST", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理上传健康证照片
+     * 请求格式：{"fileName": "cert_001.jpg", "imageBase64": "..."}
+     * 文件名格式：cert_{工号}.jpg
+     */
+    private suspend fun handleUploadHealthCertPhoto(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+        var errorMessage: String? = null
+
+        try {
+            val request = call.receive<PhotoUploadRequest>()
+            
+            val fileNameStr = request.fileName
+            if (fileNameStr.isBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名不能为空"))
+                return
+            }
+
+            if (!fileNameStr.matches(Regex("^cert_[A-Za-z0-9_]+\\.(jpg|jpeg|png)$", RegexOption.IGNORE_CASE))) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名格式错误，应为 cert_{工号}.jpg，例如 cert_001.jpg"))
+                return
+            }
+
+            if (request.imageBase64.isBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片不能为空"))
+                return
+            }
+
+            val employeeId = fileNameStr.removePrefix("cert_").substringBefore(".").lowercase()
+
+            val user = userRepository.getUserByEmployeeId(employeeId).getOrNull()
+            if (user == null) {
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "员工工号不存在: $employeeId，请先导入员工信息"))
+                return
+            }
+
+            val imageBytes = android.util.Base64.decode(request.imageBase64, android.util.Base64.DEFAULT)
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            if (bitmap == null) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片格式错误"))
+                return
+            }
+
+            val savedFileName = "cert_emp_${System.currentTimeMillis()}_${user.id}.jpg"
+            val savedFile = java.io.File(FileUtil.getRecordsDir(context), savedFileName)
+            java.io.FileOutputStream(savedFile).use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+
+            val updatedUser = user.copy(healthCertImagePath = savedFileName)
+            userRepository.updateUser(updatedUser)
+
+            Timber.d("上传健康证照片成功: employeeId=$employeeId, userId=${user.id}")
+
+            call.respond(ApiResponse.success(mapOf(
+                "employeeId" to employeeId,
+                "userId" to user.id,
+                "healthCertImagePath" to savedFileName,
+                "message" to "上传成功"
+            )))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Upload health cert photo failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            errorMessage = e.message
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(ErrorCodes.INTERNAL_ERROR, "上传失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employees/upload-cert-photo", "POST", responseCode, errorMessage, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理图片下载
+     */
+    private suspend fun handleGetImage(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+
+        try {
+            val filename = call.parameters["filename"]
+
+            if (filename.isNullOrBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名不能为空"))
+                return
+            }
+
+            // 安全检查：防止目录遍历攻击
+            if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "非法文件名"))
+                return
+            }
+
+            val file = FileUtil.getRecordImageFile(context, filename)
+
+            if (file == null || !file.exists()) {
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "图片不存在"))
+                return
+            }
+
+            call.respondFile(file)
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get image failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, "获取图片失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/images/{filename}", "GET", responseCode, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理员工图片下载
+     */
+    private suspend fun handleGetEmployeeImage(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+
+        try {
+            val filename = call.parameters["filename"]
+
+            if (filename.isNullOrBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名不能为空"))
+                return
+            }
+
+            // 安全检查
+            if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "非法文件名"))
+                return
+            }
+
+            // 图片存储在 records 目录
+            val file = FileUtil.getRecordImageFile(context, filename)
+            Timber.d("handleGetEmployeeImage: filename=$filename, file=${file?.absolutePath}, exists=${file?.exists()}")
+
+            if (file == null || !file.exists()) {
+                Timber.w("员工图片不存在: $filename, 查找路径: ${FileUtil.getRecordsDir(context)}")
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "图片不存在"))
+                return
+            }
+
+            call.respondFile(file)
+
+        } catch (e: Exception) {
+            Timber.e(e, "Get employee image failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, "获取图片失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/employee-images/{filename}", "GET", responseCode, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 记录访问日志
+     */
+    private suspend fun logAccess(
+        call: ApplicationCall,
+        endpoint: String,
+        method: String,
+        responseCode: Int,
+        errorMessage: String?,
+        durationMs: Long
+    ) {
+        try {
+            // 获取当前用户信息
+            val principal = call.principal<JWTPrincipal>()
+            val userId = principal?.payload?.getClaim("userId")?.asLong()
+            val username = principal?.payload?.getClaim("username")?.asString()
+
+            val log = ApiAccessLogEntity(
+                endpoint = endpoint,
+                method = method,
+                responseCode = responseCode,
+                responseMessage = errorMessage,
+                userId = userId,
+                username = username,
+                ipAddress = call.request.origin.remoteHost,
+                durationMs = durationMs
+            )
+
+            apiAccessLogDao.insertLog(log)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to log access")
+        }
+    }
+
+    /**
+     * 将 RecordEntity 转换为 RecordResponse
+     */
+    private fun RecordEntity.toResponse(includeImages: Boolean): RecordResponse {
+        return RecordResponse(
+            id = this.id,
+            userId = this.userId,
+            userName = this.userName,
+            employeeId = this.employeeId,
+            checkTime = this.checkTime,
+            temperature = this.temperature,
+            isTempNormal = this.isTempNormal,
+            isHandNormal = this.isHandNormal,
+            isPassed = this.isPassed,
+            handStatus = this.handStatus,
+            healthCertStatus = this.healthCertStatus,
+            symptomFlags = this.symptomFlags,
+            remark = this.remark,
+            images = if (includeImages) {
+                RecordImages(
+                    face = this.faceImagePath?.let { "/api/images/$it" },
+                    palm = this.handPalmPath?.let { "/api/images/$it" },
+                    back = this.handBackPath?.let { "/api/images/$it" }
+                )
+            } else null
+        )
+    }
+
+    /**
+     * 处理账号同步请求
+     */
+    private suspend fun handleSyncUsers(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+
+        try {
+            val request = call.receive<UserSyncRequest>()
+
+            // 参数校验
+            val action = request.action.lowercase()
+            if (action !in listOf("create", "update", "delete", "sync")) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<UserSyncResponse>(ErrorCodes.INVALID_PARAMS, "无效的操作类型"))
+                return
+            }
+
+            if (request.users.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<UserSyncResponse>(ErrorCodes.INVALID_PARAMS, "用户列表不能为空"))
+                return
+            }
+
+            if (request.users.size > 100) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<UserSyncResponse>(ErrorCodes.INVALID_PARAMS, "单次同步不能超过100条"))
+                return
+            }
+
+            // 全量同步：先清空所有账号
+            if (action == "sync") {
+                systemUserDao.deleteAllUsers()
+            }
+
+            val details = mutableListOf<UserSyncDetail>()
+            var successCount = 0
+            var failedCount = 0
+
+            for (user in request.users) {
+                try {
+                    when (action) {
+                        "create" -> {
+                            val existing = systemUserDao.getUserByUsername(user.username)
+                            if (existing != null) {
+                                details.add(UserSyncDetail(user.username, "failed", "用户名已存在"))
+                                failedCount++
+                            } else {
+                                val passwordHash = hashPassword(user.password ?: "")
+                                val newUser = SystemUserEntity(
+                                    username = user.username,
+                                    passwordHash = passwordHash,
+                                    passwordType = user.passwordType ?: "plain",
+                                    employeeId = user.employeeId,
+                                    role = user.role ?: "employee",
+                                    status = user.status ?: "active"
+                                )
+                                systemUserDao.insertUser(newUser)
+                                details.add(UserSyncDetail(user.username, "success", "同步成功"))
+                                successCount++
+                            }
+                        }
+
+                        "update" -> {
+                            val existing = systemUserDao.getUserByUsername(user.username)
+                            if (existing == null) {
+                                details.add(UserSyncDetail(user.username, "failed", "用户不存在"))
+                                failedCount++
+                            } else {
+                                val updated = existing.copy(
+                                    passwordHash = user.password?.let { hashPassword(it) } ?: existing.passwordHash,
+                                    passwordType = user.passwordType ?: existing.passwordType,
+                                    employeeId = user.employeeId ?: existing.employeeId,
+                                    role = user.role ?: existing.role,
+                                    status = user.status ?: existing.status,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                                systemUserDao.updateUser(updated)
+                                details.add(UserSyncDetail(user.username, "success", "同步成功"))
+                                successCount++
+                            }
+                        }
+
+                        "delete" -> {
+                            val existing = systemUserDao.getUserByUsername(user.username)
+                            if (existing == null) {
+                                details.add(UserSyncDetail(user.username, "failed", "用户不存在"))
+                                failedCount++
+                            } else {
+                                systemUserDao.deleteUserByUsername(user.username)
+                                details.add(UserSyncDetail(user.username, "success", "删除成功"))
+                                successCount++
+                            }
+                        }
+
+                        "sync" -> {
+                            val passwordHash = hashPassword(user.password ?: "")
+                            val newUser = SystemUserEntity(
+                                username = user.username,
+                                passwordHash = passwordHash,
+                                passwordType = user.passwordType ?: "plain",
+                                employeeId = user.employeeId,
+                                role = user.role ?: "employee",
+                                status = user.status ?: "active"
+                            )
+                            systemUserDao.insertUser(newUser)
+                            details.add(UserSyncDetail(user.username, "success", "同步成功"))
+                            successCount++
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Sync user failed: ${user.username}")
+                    details.add(UserSyncDetail(user.username, "failed", "处理失败: ${e.message}"))
+                    failedCount++
+                }
+            }
+
+            val response = UserSyncResponse(
+                received = request.users.size,
+                success = successCount,
+                failed = failedCount,
+                details = details
+            )
+
+            Timber.d("User sync success: received=${request.users.size}, success=$successCount, failed=$failedCount")
+            call.respond(ApiResponse.success(response))
+
+        } catch (e: Exception) {
+            Timber.e(e, "Sync users failed")
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<UserSyncResponse>(ErrorCodes.INTERNAL_ERROR, "同步失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/users/sync", "POST", 0, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 处理下载导出文件
+     */
+    private suspend fun handleDownloadFile(call: ApplicationCall) {
+        val startTime = System.currentTimeMillis()
+        var responseCode = 0
+
+        try {
+            val filename = call.parameters["filename"]
+
+            if (filename.isNullOrBlank()) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名不能为空"))
+                return
+            }
+
+            // 安全检查：防止目录遍历攻击
+            if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "非法文件名"))
+                return
+            }
+
+            // 检查文件是否在 cache 目录
+            val file = File(context.cacheDir, filename)
+
+            if (!file.exists()) {
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "文件不存在或已过期"))
+                return
+            }
+
+            // 检查文件是否过期（1小时）
+            val oneHourAgo = System.currentTimeMillis() - 3600 * 1000
+            if (file.lastModified() < oneHourAgo) {
+                file.delete()
+                responseCode = ErrorCodes.NOT_FOUND
+                call.respond(HttpStatusCode.NotFound, ApiResponse.error<String>(responseCode, "文件已过期"))
+                return
+            }
+
+            call.respondFile(file)
+
+        } catch (e: Exception) {
+            Timber.e(e, "Download file failed")
+            responseCode = ErrorCodes.INTERNAL_ERROR
+            call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, "下载失败: ${e.message}"))
+        } finally {
+            logAccess(call, "/api/downloads/{filename}", "GET", responseCode, null, System.currentTimeMillis() - startTime)
+        }
+    }
+
+    /**
+     * 简单密码哈希（生产环境应使用更安全的方式）
+     */
+    private fun hashPassword(password: String): String {
+        return if (password.isEmpty()) {
+            ""
+        } else {
+            // 简单处理：直接返回原密码（实际应该加密）
+            // TODO: 生产环境使用 BCrypt 或其他加密方式
+            password
+        }
+    }
+
+    /**
+     * 将 User 转换为 EmployeeResponse
+     */
+    private fun User.toEmployeeResponse(): EmployeeResponse {
+        Timber.d("toEmployeeResponse: faceImagePath=$faceImagePath, healthCertImagePath=$healthCertImagePath")
+        val faceImageUrl = faceImagePath?.let { path ->
+            val fileName = path.substringAfterLast("/")
+            if (fileName.isNotBlank()) {
+                Timber.d("toEmployeeResponse: face fileName=$fileName")
+                "/api/employee-images/$fileName"
+            } else null
+        }
+        val healthCertImageUrl = healthCertImagePath.let { path ->
+            if (path.isNotBlank()) {
+                val fileName = path.substringAfterLast("/")
+                if (fileName.isNotBlank()) {
+                    Timber.d("toEmployeeResponse: cert fileName=$fileName")
+                    "/api/employee-images/$fileName"
+                } else null
+            } else null
+        }
+        return EmployeeResponse(
+            id = id,
+            name = name,
+            employeeId = employeeId,
+            idCardNumber = idCardNumber,
+            healthCertStatus = getHealthCertStatus().name,
+            healthCertStartDate = healthCertStartDate,
+            healthCertEndDate = healthCertEndDate,
+            faceImage = faceImageUrl,
+            healthCertImage = healthCertImageUrl,
+            isActive = isActive,
+            createdAt = createdAt
+        )
+    }
+
+    /**
+     * 将 float 数组转换为 byte 数组
+     */
+    private fun floatArrayToByteArray(feature: FloatArray): ByteArray {
+        val buffer = java.nio.ByteBuffer.allocate(feature.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        buffer.asFloatBuffer().put(feature)
+        return buffer.array()
+    }
+}

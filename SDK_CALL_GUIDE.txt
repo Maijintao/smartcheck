@@ -1,0 +1,96 @@
+SmartCheck SDK 调用指南
+
+1) SDK 概览
+- com.smartcheck.sdk.HandDetector: 手部/异物检测（RKNN）
+- com.smartcheck.sdk.face.FaceSdk: 人脸检测、特征提取、相似度比对、活体检测（SeetaFace6）
+
+2) Gradle 依赖
+在业务模块（如 app/build.gradle.kts）添加：
+implementation(project(":hand-sdk"))
+implementation(project(":face-sdk"))
+
+3) 必需资源
+3.1 Hand SDK
+- hand-sdk/src/main/assets/hand_check_rk3566.rknn
+- hand-sdk/src/main/assets/yiwu_check_rk3566.rknn
+- hand-sdk/src/main/jniLibs/{arch}/librknnrt.so
+- hand-sdk/src/main/cpp/rknn_api/rknn_api.h（官方版本）
+
+3.2 Face SDK
+- face-sdk/src/main/assets/face_detector.csta
+- face-sdk/src/main/assets/face_landmarker_pts5.csta
+- face-sdk/src/main/assets/face_recognizer.csta
+- face-sdk/src/main/assets/fas_first.csta
+- face-sdk/src/main/assets/fas_second.csta
+
+4) 初始化（建议在 Application）
+返回值约定：0=成功，非0=失败。
+
+Kotlin 示例：
+----------------------------------------
+val faceRet = FaceSdk.init(this)
+if (faceRet != 0) {
+    val detail = FaceSdk.getLastInitError() ?: "code=$faceRet"
+    Log.e("App", "FaceSdk init failed: $detail")
+}
+
+val handRet = HandDetector.init(this)
+if (handRet != 0) {
+    Log.e("App", "HandDetector init failed: code=$handRet")
+}
+----------------------------------------
+
+5) FaceSdk 调用
+5.1 人脸检测 + 特征提取
+----------------------------------------
+val faces = FaceSdk.detect(bitmap)
+if (faces.isNotEmpty()) {
+    val feature = FaceSdk.extractFeature(bitmap)
+    if (feature != null) {
+        // 存库或比对
+    }
+}
+----------------------------------------
+
+5.2 相似度比对
+----------------------------------------
+val sim = FaceSdk.calculateSimilarity(feature1, feature2)
+----------------------------------------
+
+5.3 活体检测
+----------------------------------------
+val liveness = FaceSdk.detectLiveness(bitmap)
+if (liveness.isLive) {
+    // 真人
+}
+----------------------------------------
+状态：REAL / SPOOF / FUZZY / DETECTING / ERROR
+
+6) HandDetector 调用
+----------------------------------------
+val hands = HandDetector.detect(bitmap)
+for (hand in hands) {
+    val hasRisk = hand.hasForeignObject
+    val label = hand.label
+    val score = hand.score
+    for (obj in hand.foreignObjects) {
+        // obj.label / obj.score / obj.box
+    }
+}
+----------------------------------------
+
+7) 线程与并发建议
+- 初始化串行执行，避免重复 init。
+- 推理放后台线程（如 Dispatchers.Default）。
+- 多线程同时调 FaceSdk 时，建议业务层互斥。
+
+8) 资源释放
+----------------------------------------
+FaceSdk.release()
+HandDetector.release()
+----------------------------------------
+
+9) 常见问题
+- FaceSdk.init 非0：模型缺失、so 未打包、查看 FaceSdk.getLastInitError()
+- HandDetector.init 非0：非 Rockchip 设备、librknnrt.so 缺失/架构不匹配、rknn 模型缺失
+- detect 空结果：未初始化成功、输入图像质量差、实时场景帧被丢弃
