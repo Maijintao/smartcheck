@@ -510,7 +510,7 @@ fun SettingsScreen(
                     )
                     SettingsItem(
                         title = "食堂名称",
-                        subtitle = if (canteenName.isBlank()) "上海交通大学荔园三食堂" else canteenName,
+                        subtitle = if (canteenName.isBlank()) "某某公司" else canteenName,
                         trailing = {
                             PillButton(
                                 text = "修改",

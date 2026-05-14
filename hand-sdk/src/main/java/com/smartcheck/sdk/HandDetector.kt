@@ -74,14 +74,18 @@ object HandDetector {
      * 初始化检测器
      * @param context Android Context
      * @param licenseKey 授权密钥（预留）
+<<<<<<< feature/wcx
      * @return 0=成功, -1=失败
+=======
+     * @return 0=成功, -1=初始化失败
+>>>>>>> local
      */
     fun init(context: Context, licenseKey: String = ""): Int {
         if (isInitialized) {
             Log.w(TAG, "Already initialized")
             return 0
         }
-        
+
         try {
             // 检查模型文件是否存在
             val assetManager = context.assets
@@ -94,9 +98,9 @@ object HandDetector {
                 Log.e(TAG, "Please check hand-sdk/src/main/assets/ directory")
                 return -1
             }
-            
+
             val ret = nativeInit(assetManager, HAND_MODEL_NAME, FOREIGN_MODEL_NAME)
-            
+
             if (ret == 0) {
                 isInitialized = true
                 Log.i(TAG, "HandDetector initialized successfully")
@@ -107,7 +111,7 @@ object HandDetector {
                 Log.e(TAG, "  2. Model format incompatible with device")
                 Log.e(TAG, "  3. Insufficient memory")
             }
-            
+
             return ret
         } catch (e: Exception) {
             Log.e(TAG, "Exception during initialization", e)
