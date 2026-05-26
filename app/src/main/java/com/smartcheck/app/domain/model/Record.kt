@@ -16,5 +16,6 @@ data class Record(
     val handPalmPath: String? = null,
     val handBackPath: String? = null,
     val checkTime: Long = System.currentTimeMillis(),
-    val remark: String = ""
+    val remark: String = "",
+    val isUploaded: Boolean = false
 )

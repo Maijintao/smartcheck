@@ -78,6 +78,24 @@ class SettingsRepository @Inject constructor(
         _deviceSn.value = value
     }
 
+    fun addDeviceSnHistory(sn: String) {
+        if (sn.isBlank()) return
+        val current = getDeviceSnHistory().toMutableSet()
+        current.add(sn)
+        prefs.edit().putString(KEY_DEVICE_SN_HISTORY, current.joinToString(",")).apply()
+    }
+
+    fun getDeviceSnHistory(): List<String> {
+        val raw = prefs.getString(KEY_DEVICE_SN_HISTORY, "") ?: ""
+        return raw.split(",").filter { it.isNotBlank() }
+    }
+
+    fun removeDeviceSnHistory(sn: String) {
+        val current = getDeviceSnHistory().toMutableSet()
+        current.remove(sn)
+        prefs.edit().putString(KEY_DEVICE_SN_HISTORY, current.joinToString(",")).apply()
+    }
+
     fun isVoiceEnabled(): Boolean = _voiceEnabled.value
 
     fun getDeviceSn(): String = _deviceSn.value
@@ -92,5 +110,6 @@ class SettingsRepository @Inject constructor(
         private const val KEY_LOGIN_BG = "login_background"
         private const val KEY_ADMIN_AVATAR = "admin_avatar"
         private const val KEY_DEVICE_SN = "device_sn"
+        private const val KEY_DEVICE_SN_HISTORY = "device_sn_history"
     }
 }

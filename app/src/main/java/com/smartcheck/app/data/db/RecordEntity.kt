@@ -29,7 +29,10 @@ data class RecordEntity(
     
     // 时间戳
     val checkTime: Long = System.currentTimeMillis(),
-    
+
     // 备注
-    val remark: String = ""
+    val remark: String = "",
+
+    // 云端上传状态
+    val isUploaded: Boolean = false
 )

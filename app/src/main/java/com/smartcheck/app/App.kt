@@ -8,6 +8,8 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraXConfig
 import com.smartcheck.app.api.KtorServerManager
+import com.smartcheck.app.data.upload.NetworkMonitor
+import com.smartcheck.app.data.upload.PendingUploadManager
 import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.sdk.HandDetector
 import dagger.hilt.android.HiltAndroidApp
@@ -25,6 +27,12 @@ class App : Application(), CameraXConfig.Provider {
 
     @Inject
     lateinit var ktorServerManager: KtorServerManager
+
+    @Inject
+    lateinit var networkMonitor: NetworkMonitor
+
+    @Inject
+    lateinit var pendingUploadManager: PendingUploadManager
 
     override fun onCreate() {
         super.onCreate()
@@ -49,6 +57,12 @@ class App : Application(), CameraXConfig.Provider {
 
         // 启动 Ktor API 服务器
         startKtorServer()
+
+        // 启动网络监听，联网时自动上传离线记录
+        startNetworkMonitor()
+
+        // 应用启动时检查并上传积压的离线记录
+        startPendingUploadQueue()
     }
 
     private fun startKtorServer() {
@@ -73,6 +87,48 @@ class App : Application(), CameraXConfig.Provider {
             }, 1000)
         } catch (e: Exception) {
             Timber.e(e, "Failed to start Ktor server")
+        }
+    }
+
+    private fun startNetworkMonitor() {
+        try {
+            android.os.Handler(mainLooper).postDelayed({
+                if (::networkMonitor.isInitialized) {
+                    networkMonitor.start()
+                    Timber.i("NetworkMonitor started")
+                } else {
+                    Timber.w("NetworkMonitor not initialized yet, will retry...")
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (::networkMonitor.isInitialized) {
+                            networkMonitor.start()
+                            Timber.i("NetworkMonitor started on retry")
+                        }
+                    }, 2000)
+                }
+            }, 1500)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start NetworkMonitor")
+        }
+    }
+
+    private fun startPendingUploadQueue() {
+        try {
+            android.os.Handler(mainLooper).postDelayed({
+                if (::pendingUploadManager.isInitialized) {
+                    pendingUploadManager.enqueue(0L)
+                    Timber.i("Pending upload queue triggered on app launch")
+                } else {
+                    Timber.w("PendingUploadManager not initialized yet, will retry...")
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (::pendingUploadManager.isInitialized) {
+                            pendingUploadManager.enqueue(0L)
+                            Timber.i("Pending upload queue triggered on retry")
+                        }
+                    }, 3000)
+                }
+            }, 3000)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start pending upload queue")
         }
     }
 

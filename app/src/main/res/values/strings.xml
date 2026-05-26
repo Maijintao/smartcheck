@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-<<<<<<< feature/wcx
     <string name="app_name">优信智能晨检</string>
-=======
-    <string name="app_name">智能晨检仪</string>
->>>>>>> local
     
     <!-- 状态提示 -->
     <string name="status_idle">请正视摄像头</string>

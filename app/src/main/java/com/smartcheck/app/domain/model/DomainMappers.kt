@@ -55,7 +55,8 @@ fun RecordEntity.toDomain(): Record = Record(
     handPalmPath = handPalmPath,
     handBackPath = handBackPath,
     checkTime = checkTime,
-    remark = remark
+    remark = remark,
+    isUploaded = isUploaded
 )
 
 fun Record.toEntity(): RecordEntity = RecordEntity(
@@ -74,7 +75,8 @@ fun Record.toEntity(): RecordEntity = RecordEntity(
     handPalmPath = handPalmPath,
     handBackPath = handBackPath,
     checkTime = checkTime,
-    remark = remark
+    remark = remark,
+    isUploaded = isUploaded
 )
 
 private fun String.toHandStatus(): HandStatus = try {

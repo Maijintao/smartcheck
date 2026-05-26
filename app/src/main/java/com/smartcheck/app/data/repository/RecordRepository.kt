@@ -174,4 +174,12 @@ class RecordRepository @Inject constructor(
     suspend fun getRecordsAfterId(lastId: Long, limit: Int): List<RecordEntity> {
         return recordDao.getRecordsAfterId(lastId, limit)
     }
+
+    suspend fun getUnuploadedRecords(): List<RecordEntity> {
+        return recordDao.getUnuploadedRecords()
+    }
+
+    suspend fun markAsUploaded(recordId: Long) {
+        recordDao.markAsUploaded(recordId)
+    }
 }

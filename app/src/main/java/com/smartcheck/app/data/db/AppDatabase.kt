@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
     @Database(
         entities = [UserEntity::class, RecordEntity::class, ApiTokenEntity::class, ApiAccessLogEntity::class, SystemUserEntity::class],
-        version = 8,
+        version = 9,
         exportSchema = false
     )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +95,10 @@ abstract class AppDatabase : RoomDatabase() {
             try {
                 database.execSQL("ALTER TABLE users ADD COLUMN healthCertCode TEXT NOT NULL DEFAULT ''")
             } catch (e: Exception) { /* column may exist */ }
+        }
+
+        val MIGRATION_8_9 = androidx.room.migration.Migration(8, 9) { database ->
+            database.execSQL("ALTER TABLE check_records ADD COLUMN isUploaded INTEGER NOT NULL DEFAULT 0")
         }
     }
 }

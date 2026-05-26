@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"d:/projects/smartcheck-feature-lkh\" status)",
+      "Bash(git -C \"d:/projects/smartcheck-feature-lkh\" log --oneline -10 --all --decorate)"
+    ]
+  }
+}

@@ -67,7 +67,6 @@ class AdminAuthRepository @Inject constructor(
     }
 
     override suspend fun login(account: String, password: String): Result<String> {
-<<<<<<< feature/wcx
         // 检查是否已激活
         if (!DeviceAuth.isActivated()) {
             Timber.d("[AdminAuth] 设备未激活")
@@ -75,15 +74,6 @@ class AdminAuthRepository @Inject constructor(
         } else {
             Timber.d("[AdminAuth] 设备已激活")
         }
-=======
-        val authResult = DeviceAuth.verifyDeviceAccess()
-        if (authResult.isFailure) {
-            val msg = authResult.exceptionOrNull()?.message ?: "设备未授权"
-            Timber.w("[AdminAuth] MAC 白名单校验未通过: $msg")
-            return Result.failure(AppError.Unauthorized(msg))
-        }
-        Timber.d("[AdminAuth] MAC 白名单校验通过")
->>>>>>> local
 
         // 优先从 system_users 表验证（API同步的账号）
         val systemUser = systemUserDao.getActiveUserByUsername(account.trim())

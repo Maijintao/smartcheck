@@ -61,6 +61,11 @@ class CloudImportViewModel @Inject constructor(
         val message: String
     )
 
+    data class ImportProgress(
+        val current: Int,
+        val total: Int
+    )
+
     data class UiState(
         val deviceSn: String = "",
         val pageIndex: Int = 0,
@@ -70,18 +75,32 @@ class CloudImportViewModel @Inject constructor(
         val total: Int = 0,
         val error: String? = null,
         val importResult: ImportResult? = null,
-        val importSuccess: Boolean = false
+        val importSuccess: Boolean = false,
+        val snHistory: List<String> = emptyList(),
+        val importProgress: ImportProgress? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
-        _uiState.value = _uiState.value.copy(deviceSn = settingsRepository.getDeviceSn())
+        _uiState.value = _uiState.value.copy(
+            deviceSn = settingsRepository.getDeviceSn(),
+            snHistory = settingsRepository.getDeviceSnHistory()
+        )
     }
 
     fun setDeviceSn(sn: String) {
         _uiState.value = _uiState.value.copy(deviceSn = sn)
+    }
+
+    fun selectHistorySn(sn: String) {
+        _uiState.value = _uiState.value.copy(deviceSn = sn)
+    }
+
+    fun removeHistorySn(sn: String) {
+        settingsRepository.removeDeviceSnHistory(sn)
+        _uiState.value = _uiState.value.copy(snHistory = settingsRepository.getDeviceSnHistory())
     }
 
     fun setPageIndex(index: Int) {
@@ -168,11 +187,17 @@ class CloudImportViewModel @Inject constructor(
                                 healthCertEndDate = item.hcEndTime
                             )
                         }
+                        // 保存SN码到历史记录
+                        val currentSn = _uiState.value.deviceSn
+                        if (currentSn.isNotBlank()) {
+                            settingsRepository.addDeviceSnHistory(currentSn)
+                        }
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             employees = employees,
                             total = result.total,
-                            error = null
+                            error = null,
+                            snHistory = settingsRepository.getDeviceSnHistory()
                         )
                         Timber.d("Fetched ${employees.size} employees, total: ${result.total}")
                     } else {
@@ -199,7 +224,7 @@ class CloudImportViewModel @Inject constructor(
 
     fun importSelectedEmployees() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, importProgress = null)
 
             val selectedEmployees = _uiState.value.employees.filter { it.selected }
             if (selectedEmployees.isEmpty()) {
@@ -212,11 +237,17 @@ class CloudImportViewModel @Inject constructor(
 
             var successCount = 0
             var failedCount = 0
+            val total = selectedEmployees.size
 
-            for (cloudEmp in selectedEmployees) {
+            for ((index, cloudEmp) in selectedEmployees.withIndex()) {
+                // 更新进度
+                _uiState.value = _uiState.value.copy(
+                    importProgress = ImportProgress(current = index + 1, total = total)
+                )
+
                 try {
                     val existingUser = userRepository.getUserByEmployeeId(cloudEmp.employeeId).getOrNull()
-                    
+
                     val healthCertStartDate = parseDate(cloudEmp.healthCertStartDate)
                     val healthCertEndDate = parseDate(cloudEmp.healthCertEndDate)
 
@@ -233,7 +264,7 @@ class CloudImportViewModel @Inject constructor(
                     if (existingUser != null) {
                         var faceImagePath = existingUser.faceImagePath
                         var faceEmbedding = existingUser.faceEmbedding
-                        
+
                         // 如果有新的人脸图片，下载并提取特征
                         if (faceImageBase64 != null) {
                             val saveResult = saveFaceImageFromBase64(faceImageBase64, existingUser.employeeId)
@@ -242,7 +273,7 @@ class CloudImportViewModel @Inject constructor(
                                 faceEmbedding = embedding
                             }
                         }
-                        
+
                         val updatedUser = existingUser.copy(
                             name = cloudEmp.name,
                             phone = cloudEmp.phone,
@@ -267,11 +298,11 @@ class CloudImportViewModel @Inject constructor(
                             isActive = true
                         )
                         val userId = userRepository.createUser(newUser).getOrNull()
-                        
+
                         // 如果有人脸图片，保存并提取特征
                         var finalFaceImagePath = ""
                         var finalFaceEmbedding: ByteArray? = null
-                        
+
                         if (userId != null && faceImageBase64 != null) {
                             val saveResult = saveFaceImageFromBase64(faceImageBase64, cloudEmp.employeeId)
                             saveResult.onSuccess { (path, embedding) ->
@@ -279,7 +310,7 @@ class CloudImportViewModel @Inject constructor(
                                 finalFaceEmbedding = embedding
                             }
                         }
-                        
+
                         if (userId != null && finalFaceImagePath.isNotEmpty()) {
                             val updatedUser = newUser.copy(
                                 id = userId,
@@ -308,7 +339,8 @@ class CloudImportViewModel @Inject constructor(
                     failed = failedCount,
                     message = "导入完成"
                 ),
-                importSuccess = true
+                importSuccess = true,
+                importProgress = null
             )
         }
     }

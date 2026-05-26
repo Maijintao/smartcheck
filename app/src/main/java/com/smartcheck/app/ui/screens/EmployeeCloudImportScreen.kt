@@ -14,7 +14,9 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.material.ripple.rememberRipple
@@ -145,6 +147,8 @@ fun EmployeeCloudImportScreen(
 
                     Divider(color = borderColor)
 
+                    var showSnHistory by remember { mutableStateOf(false) }
+
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text(
                             text = "设备编码 (SN)",
@@ -152,25 +156,86 @@ fun EmployeeCloudImportScreen(
                             fontWeight = FontWeight.Medium,
                             color = textMuted
                         )
-                        TextField(
-                            value = uiState.deviceSn,
-                            onValueChange = { viewModel.setDeviceSn(it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("请输入绑定的云端设备编码 (yg_sn)", fontSize = 14.sp) },
-                            singleLine = true,
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.White,
-                                unfocusedContainerColor = inputBg,
-                                disabledContainerColor = inputBg,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                                cursorColor = primaryBlue,
-                                focusedTextColor = textMain,
-                                unfocusedTextColor = textMain
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            TextField(
+                                value = uiState.deviceSn,
+                                onValueChange = {
+                                    viewModel.setDeviceSn(it)
+                                    showSnHistory = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("请输入绑定的云端设备编码 (yg_sn)", fontSize = 14.sp) },
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (uiState.snHistory.isNotEmpty()) {
+                                        IconButton(onClick = { showSnHistory = !showSnHistory }) {
+                                            Icon(
+                                                imageVector = if (showSnHistory)
+                                                    Icons.Default.KeyboardArrowUp
+                                                else
+                                                    Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "历史记录",
+                                                tint = textMuted
+                                            )
+                                        }
+                                    }
+                                },
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = inputBg,
+                                    disabledContainerColor = inputBg,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent,
+                                    cursorColor = primaryBlue,
+                                    focusedTextColor = textMain,
+                                    unfocusedTextColor = textMain
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            // 历史SN码下拉菜单
+                            DropdownMenu(
+                                expanded = showSnHistory,
+                                onDismissRequest = { showSnHistory = false },
+                                modifier = Modifier.fillMaxWidth(0.95f)
+                            ) {
+                                Text(
+                                    text = "历史记录",
+                                    fontSize = 12.sp,
+                                    color = textMuted,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                                uiState.snHistory.forEach { sn ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(sn, fontSize = 14.sp, color = textMain)
+                                                Text(
+                                                    text = "删除",
+                                                    fontSize = 12.sp,
+                                                    color = danger,
+                                                    modifier = Modifier.clickable {
+                                                        viewModel.removeHistorySn(sn)
+                                                        if (uiState.snHistory.size <= 1) {
+                                                            showSnHistory = false
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.selectHistorySn(sn)
+                                            showSnHistory = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -415,6 +480,41 @@ fun EmployeeCloudImportScreen(
                         }
 
                         val selectedCount = uiState.employees.count { it.selected }
+
+                        // 导入进度展示
+                        uiState.importProgress?.let { progress ->
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "正在导入员工...",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = primaryBlue
+                                    )
+                                    Text(
+                                        text = "${progress.current} / ${progress.total}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = primaryBlue
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = progress.current / progress.total.toFloat(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = primaryBlue,
+                                    trackColor = Color(0xFFDBEAFE)
+                                )
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { viewModel.importSelectedEmployees() },
@@ -430,7 +530,7 @@ fun EmployeeCloudImportScreen(
                             Icon(Icons.Default.Check, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "导入已选员工 ($selectedCount)",
+                                text = if (uiState.importProgress != null) "导入中..." else "导入已选员工 ($selectedCount)",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
