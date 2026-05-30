@@ -31,11 +31,8 @@ import coil.compose.AsyncImage
 import com.smartcheck.app.BuildConfig
 import com.smartcheck.app.data.repository.AdminAuthRepository
 import com.smartcheck.app.ui.theme.Dimens
-import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.viewmodel.AdminAuthViewModel
 import com.smartcheck.app.viewmodel.SettingsViewModel
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,13 +48,6 @@ fun AdminLoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var rememberPassword by remember { mutableStateOf(true) }
     
-    // 激活相关
-    var showActivationDialog by remember { mutableStateOf(false) }
-    var activationCode by remember { mutableStateOf("") }
-    var activationError by remember { mutableStateOf<String?>(null) }
-    var isActivating by remember { mutableStateOf(false) }
-    var activationSuccess by remember { mutableStateOf(false) }
-
     val storedAccount by viewModel.account.collectAsState()
     val loginTitle by settingsViewModel.loginTitle.collectAsState()
     val loginBackground by settingsViewModel.loginBackground.collectAsState()
@@ -166,7 +156,7 @@ fun AdminLoginScreen(
                         )
                         Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
                         Text(
-                            text = if (canteenName.isBlank()) "优信智能晨检" else canteenName,
+                            text = if (canteenName.isBlank()) "某某智能晨检" else canteenName,
                             fontSize = Dimens.TextSizeNormal,
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
@@ -175,7 +165,7 @@ fun AdminLoginScreen(
 
                     Column(modifier = Modifier.offset(y = (-12).dp)) {
                         Text(
-                            text = if (loginTitle.isBlank()) "优信智能晨检" else loginTitle,
+                            text = if (loginTitle.isBlank()) "某某智能晨检" else loginTitle,
                             fontSize = 42.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -312,14 +302,6 @@ fun AdminLoginScreen(
                     )
                 )
             }
-            if (activationSuccess) {
-                Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
-                Text(
-                    text = "激活成功！",
-                    color = primaryColor,
-                    fontSize = Dimens.TextSizeSmall
-                )
-            }
             if (error != null) {
                 Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
                 Text(
@@ -378,100 +360,7 @@ fun AdminLoginScreen(
                     Text(text = "忘记密码？", fontSize = Dimens.TextSizeSmall, color = primaryColor)
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            TextButton(onClick = { showActivationDialog = true }) {
-                Text(text = "激活设备", fontSize = Dimens.TextSizeSmall, color = primaryColor)
-            }
-        }
-        
-        // 激活对话框
-        if (showActivationDialog) {
-            AlertDialog(
-                onDismissRequest = { showActivationDialog = false },
-                title = { Text("激活设备") },
-                text = {
-                    Column {
-                        if (activationSuccess) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "✓",
-                                        fontSize = 48.sp,
-                                        color = Color(0xFF4CAF50)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "激活成功！",
-                                        fontSize = Dimens.TextSizeTitle,
-                                        color = Color(0xFF4CAF50),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "服务器：${DeviceAuth.SERVER_URL}",
-                                fontSize = Dimens.TextSizeSmall,
-                                color = Color(0xFF6B7280)
-                            )
-                            Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
-                            OutlinedTextField(
-                                value = activationCode,
-                                onValueChange = { activationCode = it },
-                                label = { Text("激活码") },
-                                placeholder = { Text("请输入激活码") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            if (activationError != null) {
-                                Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
-                                Text(
-                                    text = activationError ?: "",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontSize = Dimens.TextSizeSmall
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    if (!activationSuccess) {
-                        Button(
-                            onClick = {
-                                isActivating = true
-                                activationError = null
-                                GlobalScope.launch {
-                                    val result = DeviceAuth.activate(activationCode)
-                                    isActivating = false
-                                    result.fold(
-                                        onSuccess = {
-                                            activationSuccess = true
-                                            kotlinx.coroutines.delay(1500)
-                                            showActivationDialog = false
-                                            activationSuccess = false
-                                            error = null
-                                        },
-                                        onFailure = {
-                                            activationError = it.message ?: "激活失败"
-                                        }
-                                    )
-                                }
-                            },
-                            enabled = !isActivating && activationCode.isNotBlank()
-                        ) {
-                            Text(if (isActivating) "激活中..." else "确认")
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showActivationDialog = false }) {
-                        Text(if (activationSuccess) "完成" else "取消")
-                    }
-                }
-            )
-        }
         }
     }
+}
 }

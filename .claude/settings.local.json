@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(git -C \"d:/projects/smartcheck-feature-lkh\" status)",
-      "Bash(git -C \"d:/projects/smartcheck-feature-lkh\" log --oneline -10 --all --decorate)"
+      "Bash(git -C \"d:/projects/smartcheck-feature-lkh\" log --oneline -10 --all --decorate)",
+      "Bash(./gradlew :app:compileDebugKotlin --no-daemon)",
+      "Bash(./gradlew.bat :app:compileDebugKotlin)",
+      "Bash(./gradlew.bat clean *)",
+      "Read(//c/Users/82417/Documents/xwechat_files/wxid_nkm8wi94cm7822_b18e/msg/file/2026-05/**)",
+      "Bash(gradlew.bat :app:assembleRelease)"
     ]
   }
 }

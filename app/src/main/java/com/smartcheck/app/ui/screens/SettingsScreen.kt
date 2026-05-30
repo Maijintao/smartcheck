@@ -97,12 +97,15 @@ fun SettingsScreen(
     val adminAvatar by viewModel.adminAvatar.collectAsState()
     val voiceEnabled by viewModel.voiceEnabled.collectAsState()
     val deviceSn by viewModel.deviceSn.collectAsState()
+    val deviceId by viewModel.deviceId.collectAsState()
+    val platformUrl by viewModel.platformUrl.collectAsState()
+    val apiKey by viewModel.apiKey.collectAsState()
     val context = LocalContext.current
 
     val currentAccount by authViewModel.account.collectAsState()
     val currentRole by authViewModel.currentRole.collectAsState()
-    
-    val deviceId = remember { DeviceInfo.getDeviceId(context) }
+
+    val defaultDeviceId = remember { DeviceAuth.getCurrentDeviceMac() ?: DeviceInfo.getDeviceId(context) }
     val deviceModel = remember { DeviceInfo.getDeviceModel() }
     val appVersion = remember { DeviceInfo.getAppVersion(context) }
 
@@ -142,6 +145,7 @@ fun SettingsScreen(
     var showHistoryDialog by remember { mutableStateOf(false) }
     var versionHistory by remember { mutableStateOf<List<UpdateInfo>>(emptyList()) }
     var historyLoading by remember { mutableStateOf(false) }
+
 
     fun openEdit(label: String, value: String, onConfirm: (String) -> Unit) {
         dialogLabel = label
@@ -455,7 +459,7 @@ fun SettingsScreen(
                 SettingsCard {
                     SettingsItem(
                         title = "设备识别码 (SN)",
-                        subtitle = deviceSn.ifEmpty { deviceId },
+                        subtitle = deviceSn.ifEmpty { defaultDeviceId },
                         trailing = {
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(text = "型号: $deviceModel", color = textMuted, fontSize = 13.sp)
@@ -467,8 +471,65 @@ fun SettingsScreen(
                         borderColor = borderColor
                     )
                     SettingsItem(
+                        title = "设备ID (上报用)",
+                        subtitle = deviceId.ifBlank { defaultDeviceId },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("设备ID (上报用)", deviceId.ifBlank { defaultDeviceId }) { viewModel.setDeviceId(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
                         title = "激活服务器地址",
-                        subtitle = DeviceAuth.SERVER_URL,
+                        subtitle = DeviceAuth.serverUrl,
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "平台地址",
+                        subtitle = platformUrl.ifBlank { "未配置" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("平台地址", platformUrl) { viewModel.setPlatformUrl(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "API Key",
+                        subtitle = if (apiKey.isBlank()) "未配置" else "已配置",
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("API Key", apiKey) { viewModel.setApiKey(it) } }
+                            )
+                        },
                         textMain = textMain,
                         textMuted = textMuted,
                         borderColor = borderColor
@@ -510,7 +571,7 @@ fun SettingsScreen(
                     )
                     SettingsItem(
                         title = "食堂名称",
-                        subtitle = if (canteenName.isBlank()) "优信" else canteenName,
+                        subtitle = if (canteenName.isBlank()) "某某" else canteenName,
                         trailing = {
                             PillButton(
                                 text = "修改",
@@ -568,7 +629,7 @@ fun SettingsScreen(
                                         if (!historyLoading) {
                                             historyLoading = true
                                             updateScope.launch {
-                                                AppUpdateChecker.getVersionHistory(DeviceAuth.SERVER_URL)
+                                                AppUpdateChecker.getVersionHistory(DeviceAuth.serverUrl)
                                                     .fold(
                                                         onSuccess = { history ->
                                                             historyLoading = false
@@ -599,7 +660,7 @@ fun SettingsScreen(
                                         showUpdateLoading = true
                                         updateError = ""
                                         updateScope.launch {
-                                            AppUpdateChecker.checkUpdate(DeviceAuth.SERVER_URL)
+                                            AppUpdateChecker.checkUpdate(DeviceAuth.serverUrl)
                                                 .fold(
                                                     onSuccess = { info ->
                                                         showUpdateLoading = false

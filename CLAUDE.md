@@ -39,6 +39,7 @@ Prerequisites: JDK 17, Android SDK 34, NDK, CMake 3.22.1. On Windows use `gradle
 ./gradlew :hand-sdk:externalNativeBuildDebug :face-sdk:externalNativeBuildDebug
 
 # Lint (Android Lint only; no ktlint/detekt/spotless configured)
+./gradlew lint
 ./gradlew :app:lintDebug
 ./gradlew :app:lintFix
 
@@ -50,6 +51,13 @@ Prerequisites: JDK 17, Android SDK 34, NDK, CMake 3.22.1. On Windows use `gradle
 ```
 
 View logs: `adb logcat -s Timber:*`
+
+## Troubleshooting
+
+- `fr_2_10.dat` is tracked via Git LFS (`face-sdk/src/main/assets/fr_2_10.dat`). If it appears as a tiny text pointer file, run `git lfs pull`.
+- If native build fails, confirm NDK is installed and Gradle sees CMake 3.22.1.
+- Duplicate `libc++_shared.so` packaging errors are handled by `pickFirsts` in `app/build.gradle.kts`.
+- Clean and rebuild if you see stale native artifacts: `./gradlew clean && ./gradlew assembleDebug`.
 
 ## High-Level Architecture
 

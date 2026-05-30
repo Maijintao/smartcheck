@@ -3,6 +3,7 @@ package com.smartcheck.app.data.upload
 import com.smartcheck.app.data.db.RecordDao
 import com.smartcheck.app.domain.model.toDomain
 import com.smartcheck.app.data.repository.SettingsRepository
+import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.utils.DeviceInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -49,13 +50,15 @@ class PendingUploadManager @Inject constructor(
 
             Timber.d("Found ${pendingRecords.size} pending records to upload")
 
-            val deviceSn = settingsRepository.getDeviceSn()
-                .ifEmpty { DeviceInfo.getDeviceId(context) }
+            // 优先使用用户配置的设备ID，其次 MAC 地址，最后回退到自动生成的设备ID
+            val deviceId = settingsRepository.deviceId.value.takeIf { it.isNotBlank() }
+                ?: DeviceAuth.getCurrentDeviceMac()
+                ?: DeviceInfo.getDeviceId(context)
 
             for (entity in pendingRecords) {
                 try {
                     val record = entity.toDomain()
-                    val result = cloudRecordService.uploadCheckRecord(record, deviceSn)
+                    val result = cloudRecordService.uploadToPlatform(record, deviceId)
 
                     result.onSuccess {
                         withContext(Dispatchers.IO) {

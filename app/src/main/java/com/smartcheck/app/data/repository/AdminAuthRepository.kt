@@ -67,13 +67,15 @@ class AdminAuthRepository @Inject constructor(
     }
 
     override suspend fun login(account: String, password: String): Result<String> {
-        // 检查是否已激活
-        if (!DeviceAuth.isActivated()) {
-            Timber.d("[AdminAuth] 设备未激活")
-            return Result.failure(AppError.Unauthorized("请先激活设备"))
-        } else {
-            Timber.d("[AdminAuth] 设备已激活")
-        }
+        // MAC 设备授权校验（在线白名单验证）
+        val verifyResult = DeviceAuth.verifyDeviceAccess()
+        verifyResult.fold(
+            onSuccess = { Timber.d("[AdminAuth] MAC 验证通过") },
+            onFailure = {
+                Timber.d("[AdminAuth] MAC 验证失败: ${it.message}")
+                return Result.failure(AppError.Unauthorized(it.message ?: "设备未授权"))
+            }
+        )
 
         // 优先从 system_users 表验证（API同步的账号）
         val systemUser = systemUserDao.getActiveUserByUsername(account.trim())

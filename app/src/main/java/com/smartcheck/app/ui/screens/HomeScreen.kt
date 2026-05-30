@@ -84,6 +84,7 @@ import com.smartcheck.app.viewmodel.CheckState
 import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.viewmodel.MainViewModel
 import com.smartcheck.app.viewmodel.SettingsViewModel
+import com.smartcheck.app.utils.UsbCameraHelper
 import kotlinx.coroutines.delay
 import android.widget.Toast
 import com.smartcheck.sdk.ForeignObjectInfo
@@ -236,7 +237,23 @@ fun HomeScreen(
 
     val isHandStage = uiState.state == CheckState.HAND_PALM_CHECKING ||
         uiState.state == CheckState.HAND_BACK_CHECKING
-    val preferredCameraId = if (isHandStage) "102" else "100"
+
+    val preferredCameraId = remember(isHandStage) {
+        val vidPidStr = if (isHandStage) "0BDA:D567" else "0BDA:271A"
+        val parsed = UsbCameraHelper.parseVidPid(vidPidStr)
+        if (parsed != null) {
+            val found = UsbCameraHelper.findCameraIdByVidPid(context, parsed.first, parsed.second)
+            if (found != null) {
+                Timber.i("${if (isHandStage) "Hand" else "Face"} camera resolved by VID/PID: $vidPidStr -> $found")
+                found
+            } else {
+                Timber.w("Camera not found for VID/PID $vidPidStr, falling back to default")
+                if (isHandStage) "111" else "109"
+            }
+        } else {
+            if (isHandStage) "111" else "109"
+        }
+    }
     val isSwitchingCamera = uiState.state == CheckState.FACE_PASS || uiState.state == CheckState.TEMP_MEASURING
     val isMirrored = cameraLensFacing == CameraSelector.LENS_FACING_FRONT ||
         (!isHandStage && cameraLensFacing == CameraSelector.LENS_FACING_EXTERNAL)

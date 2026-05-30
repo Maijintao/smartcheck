@@ -417,6 +417,49 @@ data class CloudCheckRecordResponse(
 }
 
 
+/**
+ * 平台接入 - 晨检记录上报员工信息
+ */
+@Serializable
+data class MorningCheckEmployee(
+    @SerialName("id") val id: String,
+    @SerialName("name") val name: String,
+    @SerialName("temperature") val temperature: Float,
+    @SerialName("photo") val photo: String = ""
+)
+
+/**
+ * 平台接入 - 晨检记录上报请求
+ */
+@Serializable
+data class MorningCheckUploadRequest(
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("timestamp") val timestamp: Long,
+    @SerialName("employees") val employees: List<MorningCheckEmployee>
+)
+
+/**
+ * 平台接入 - 晨检记录上报响应数据
+ */
+@Serializable
+data class MorningCheckUploadData(
+    @SerialName("recordId") val recordId: String = "",
+    @SerialName("processTime") val processTime: Int = 0,
+    @SerialName("warnings") val warnings: List<String> = emptyList()
+)
+
+/**
+ * 平台接入 - 晨检记录上报响应
+ */
+@Serializable
+data class MorningCheckUploadResponse(
+    @SerialName("code") val code: Int,
+    @SerialName("message") val message: String,
+    @SerialName("data") val data: MorningCheckUploadData? = null
+) {
+    val isSuccess: Boolean get() = code == 200
+}
+
 object ErrorCodes {
     const val SUCCESS = 0
     const val UNAUTHORIZED = 1001

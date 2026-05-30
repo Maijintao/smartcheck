@@ -38,6 +38,15 @@ class SettingsRepository @Inject constructor(
     private val _deviceSn = MutableStateFlow(prefs.getString(KEY_DEVICE_SN, "") ?: "")
     val deviceSn: StateFlow<String> = _deviceSn.asStateFlow()
 
+    private val _platformUrl = MutableStateFlow(prefs.getString(KEY_PLATFORM_URL, "") ?: "")
+    val platformUrl: StateFlow<String> = _platformUrl.asStateFlow()
+
+    private val _apiKey = MutableStateFlow(prefs.getString(KEY_API_KEY, "") ?: "")
+    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _deviceId = MutableStateFlow(prefs.getString(KEY_DEVICE_ID, "") ?: "")
+    val deviceId: StateFlow<String> = _deviceId.asStateFlow()
+
     fun setVoiceEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
         _voiceEnabled.value = enabled
@@ -78,6 +87,21 @@ class SettingsRepository @Inject constructor(
         _deviceSn.value = value
     }
 
+    fun setPlatformUrl(value: String) {
+        prefs.edit().putString(KEY_PLATFORM_URL, value).apply()
+        _platformUrl.value = value
+    }
+
+    fun setApiKey(value: String) {
+        prefs.edit().putString(KEY_API_KEY, value).apply()
+        _apiKey.value = value
+    }
+
+    fun setDeviceId(value: String) {
+        prefs.edit().putString(KEY_DEVICE_ID, value).apply()
+        _deviceId.value = value
+    }
+
     fun addDeviceSnHistory(sn: String) {
         if (sn.isBlank()) return
         val current = getDeviceSnHistory().toMutableSet()
@@ -111,5 +135,8 @@ class SettingsRepository @Inject constructor(
         private const val KEY_ADMIN_AVATAR = "admin_avatar"
         private const val KEY_DEVICE_SN = "device_sn"
         private const val KEY_DEVICE_SN_HISTORY = "device_sn_history"
+        private const val KEY_PLATFORM_URL = "platform_url"
+        private const val KEY_API_KEY = "api_key"
+        private const val KEY_DEVICE_ID = "device_id"
     }
 }
