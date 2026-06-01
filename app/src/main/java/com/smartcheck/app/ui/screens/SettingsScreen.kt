@@ -100,6 +100,19 @@ fun SettingsScreen(
     val deviceId by viewModel.deviceId.collectAsState()
     val platformUrl by viewModel.platformUrl.collectAsState()
     val apiKey by viewModel.apiKey.collectAsState()
+
+    // 省平台配置状态
+    val provincePlatformUrl by viewModel.provincePlatformUrl.collectAsState()
+    val provincePlatformUserId by viewModel.provincePlatformUserId.collectAsState()
+    val provincePlatformPassword by viewModel.provincePlatformPassword.collectAsState()
+    val provincePlatformInstrumentNumber by viewModel.provincePlatformInstrumentNumber.collectAsState()
+    val provincePlatformSmKey by viewModel.provincePlatformSmKey.collectAsState()
+    val provincePlatformSmIv by viewModel.provincePlatformSmIv.collectAsState()
+    val provincePlatformSmKeysHeader by viewModel.provincePlatformSmKeysHeader.collectAsState()
+    val provincePlatformTestApisix by viewModel.provincePlatformTestApisix.collectAsState()
+    val provincePlatformLoginStatus by viewModel.provincePlatformLoginStatus.collectAsState()
+    val provincePlatformSyncStatus by viewModel.provincePlatformSyncStatus.collectAsState()
+
     val context = LocalContext.current
 
     val currentAccount by authViewModel.account.collectAsState()
@@ -602,6 +615,228 @@ fun SettingsScreen(
                                     uncheckedTrackColor = Color(0xFFE2E8F0)
                                 )
                             )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor,
+                        showDivider = false
+                    )
+                }
+
+                SettingsSectionTitle(title = "省平台配置", textMuted = textMuted)
+                SettingsCard {
+                    SettingsItem(
+                        title = "服务器地址",
+                        subtitle = provincePlatformUrl.ifBlank { "未配置" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("服务器地址", provincePlatformUrl) { viewModel.setProvincePlatformUrl(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "SM4 密钥 (Hex)",
+                        subtitle = if (provincePlatformSmKey.isBlank()) "未配置" else "已配置",
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("SM4 密钥 (Hex)", provincePlatformSmKey) { viewModel.setProvincePlatformSmKey(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "SM4 IV (Hex)",
+                        subtitle = if (provincePlatformSmIv.isBlank()) "未配置" else "已配置",
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("SM4 IV (Hex)", provincePlatformSmIv) { viewModel.setProvincePlatformSmIv(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "SmKeys 请求头",
+                        subtitle = provincePlatformSmKeysHeader.ifBlank { "未配置" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("SmKeys 请求头", provincePlatformSmKeysHeader) { viewModel.setProvincePlatformSmKeysHeader(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "用户账号",
+                        subtitle = provincePlatformUserId.ifBlank { "未配置" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("用户账号", provincePlatformUserId) { viewModel.setProvincePlatformUserId(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "用户密码",
+                        subtitle = if (provincePlatformPassword.isBlank()) "未配置" else "已配置",
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = {
+                                    dialogLabel = "用户密码"
+                                    dialogValue = provincePlatformPassword
+                                    onDialogConfirm = { viewModel.setProvincePlatformPassword(it) }
+                                    showDialog = true
+                                }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "设备 SN",
+                        subtitle = provincePlatformInstrumentNumber.ifBlank { "未配置" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { openEdit("设备 SN", provincePlatformInstrumentNumber) { viewModel.setProvincePlatformInstrumentNumber(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    if (BuildConfig.DEBUG) {
+                        SettingsItem(
+                            title = "测试环境 apisix",
+                            subtitle = provincePlatformTestApisix.ifBlank { "未配置" },
+                            trailing = {
+                                PillButton(
+                                    text = "修改",
+                                    kind = PillButtonKind.Outline,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = { openEdit("测试环境 apisix", provincePlatformTestApisix) { viewModel.setProvincePlatformTestApisix(it) } }
+                                )
+                            },
+                            textMain = textMain,
+                            textMuted = textMuted,
+                            borderColor = borderColor
+                        )
+                    }
+                    SettingsItem(
+                        title = "登录测试",
+                        subtitle = provincePlatformLoginStatus.ifBlank { "点击右侧按钮测试登录" },
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (provincePlatformLoginStatus == "登录中...") {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = primaryBlue
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                PillButton(
+                                    text = "测试登录",
+                                    kind = PillButtonKind.Primary,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = { viewModel.loginTest() }
+                                )
+                            }
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "同步排班人员",
+                        subtitle = provincePlatformSyncStatus.ifBlank { "点击右侧按钮同步当天排班" },
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (provincePlatformSyncStatus == "同步中...") {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = primaryBlue
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                PillButton(
+                                    text = "同步",
+                                    kind = PillButtonKind.Primary,
+                                    primaryBlue = primaryBlue,
+                                    primaryLight = primaryLight,
+                                    borderColor = borderColor,
+                                    danger = danger,
+                                    dangerLight = dangerLight,
+                                    onClick = { viewModel.syncPersonnel() }
+                                )
+                            }
                         },
                         textMain = textMain,
                         textMuted = textMuted,

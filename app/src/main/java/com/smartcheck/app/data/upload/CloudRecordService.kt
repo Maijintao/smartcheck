@@ -2,13 +2,17 @@ package com.smartcheck.app.data.upload
 
 import android.content.Context
 import android.util.Base64
+import com.smartcheck.app.api.ProvincePlatformService
 import com.smartcheck.app.api.model.CloudCheckRecordRequest
 import com.smartcheck.app.api.model.CloudCheckRecordResponse
 import com.smartcheck.app.api.model.HandCheckParam
 import com.smartcheck.app.api.model.MorningCheckEmployee
 import com.smartcheck.app.api.model.MorningCheckUploadRequest
 import com.smartcheck.app.api.model.MorningCheckUploadResponse
+import com.smartcheck.app.api.model.ProvinceMorningCheckUpload
+import com.smartcheck.app.data.repository.ProvincePlatformRepository
 import com.smartcheck.app.data.repository.SettingsRepository
+import com.smartcheck.app.domain.model.HealthCertStatus
 import com.smartcheck.app.domain.model.Record
 import com.smartcheck.app.utils.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -20,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.net.InetAddress
+import java.text.SimpleDateFormat
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,7 +33,9 @@ import javax.inject.Singleton
 class CloudRecordService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val httpClient: HttpClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val provincePlatformService: ProvincePlatformService,
+    private val provincePlatformRepository: ProvincePlatformRepository
 ) {
     companion object {
         private const val BASE_URL = "http://api.qhk12.iyouxin.cn:50082"
@@ -36,72 +44,99 @@ class CloudRecordService @Inject constructor(
     }
 
     /**
-     * 上报到平台（新接口）
+     * 上报到省平台（替代原平台上传接口）
+     *
+     * 自动处理登录、SM4 加密、数据字段映射
      */
-    suspend fun uploadToPlatform(record: Record, deviceId: String): Result<MorningCheckUploadResponse> {
+    suspend fun uploadToPlatform(record: Record, deviceId: String): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                val platformUrl = settingsRepository.platformUrl.value.trimEnd('/')
-                val apiKey = settingsRepository.apiKey.value
-
-                if (platformUrl.isBlank() || apiKey.isBlank()) {
-                    Timber.d("Platform URL or API Key not configured, skipping upload")
-                    return@withContext Result.failure(Exception("平台地址或API Key未配置"))
-                }
-
-                Timber.d("=== Platform Upload Start ===")
+                Timber.d("=== Province Platform Upload Start ===")
                 Timber.d("Device ID: $deviceId, Record: ${record.employeeId} / ${record.userName}")
 
-                val facePhoto = getImageBase64(record.faceImagePath)
-                Timber.d("Face photo size: ${facePhoto.length}")
-
-                val employee = MorningCheckEmployee(
-                    id = record.employeeId,
-                    name = record.userName,
-                    temperature = record.temperature,
-                    photo = facePhoto
-                )
-
-                val request = MorningCheckUploadRequest(
-                    deviceId = deviceId,
-                    timestamp = record.checkTime,
-                    employees = listOf(employee)
-                )
-
-                val url = "$platformUrl$PLATFORM_ENDPOINT"
-                Timber.d("POST $url")
-
-                val response = httpClient.post(url) {
-                    contentType(ContentType.Application.Json)
-                    header("api-key", apiKey)
-                    setBody(request)
+                // 1. 确保已登录
+                val loginResult = provincePlatformRepository.ensureLogin()
+                if (loginResult.isFailure) {
+                    val error = loginResult.exceptionOrNull()
+                    if (error != null) {
+                        Timber.e("Province platform login failed, cannot upload: ${error.message}")
+                    } else {
+                        Timber.e("Province platform login failed, cannot upload")
+                    }
+                    return@withContext Result.failure(
+                        error ?: Exception("省平台登录失败")
+                    )
                 }
 
-                Timber.d("Response status: ${response.status}")
+                val orgId = settingsRepository.provincePlatformOrgId.value
+                if (orgId == 0) {
+                    Timber.e("Province platform orgId not available")
+                    return@withContext Result.failure(Exception("组织ID未获取"))
+                }
 
-                if (response.status.isSuccess()) {
-                    val responseBody = response.body<MorningCheckUploadResponse>()
-                    Timber.d("Response: code=${responseBody.code}, message=${responseBody.message}")
+                // 2. 图片转 Base64
+                val palmImage = getImageBase64(record.handPalmPath)
+                val backImage = getImageBase64(record.handBackPath)
+                val faceImage = getImageBase64(record.faceImagePath)
+                Timber.d("Image sizes - palm: ${palmImage.length}, back: ${backImage.length}, face: ${faceImage.length}")
 
-                    if (responseBody.isSuccess) {
-                        Timber.d("=== Platform Upload SUCCESS ===")
-                        Result.success(responseBody)
+                // 3. 健康证状态映射
+                val healthCertState = when (record.healthCertStatus) {
+                    HealthCertStatus.VALID -> 1
+                    else -> 0
+                }
+
+                // 4. 晨检结果
+                val health = if (record.isPassed) "健康" else "异常"
+
+                // 5. 组装上传数据
+                val uploadData = ProvinceMorningCheckUpload(
+                    orgId = orgId,
+                    personName = record.userName,
+                    idCard = record.employeeId,
+                    temperature = record.temperature.toString(),
+                    health = health,
+                    checkDate = formatDateTime(record.checkTime),
+                    picture_img = palmImage.takeIf { it.isNotEmpty() },
+                    picture_back_img = backImage.takeIf { it.isNotEmpty() },
+                    scene_img = faceImage.takeIf { it.isNotEmpty() },
+                    health_certificate_state = healthCertState
+                )
+
+                // 6. 上传
+                val uploadResult = provincePlatformService.uploadMorningCheckData(listOf(uploadData))
+
+                if (uploadResult.isSuccess) {
+                    val response = uploadResult.getOrNull()!!
+                    if (response.statuCode == 200) {
+                        Timber.d("=== Province Platform Upload SUCCESS ===")
+                        Result.success(Unit)
                     } else {
-                        Timber.e("=== Platform Upload FAILED: ${responseBody.message} ===")
-                        Result.failure(Exception(responseBody.message))
+                        val msg: String = response.info
+                        Timber.e("=== Province Platform Upload FAILED: $msg ===")
+                        Result.failure(Exception(msg))
                     }
                 } else {
-                    Timber.e("=== Platform Upload HTTP ERROR: ${response.status} ===")
-                    Result.failure(Exception("HTTP ${response.status}"))
+                    val e = uploadResult.exceptionOrNull()
+                    Timber.e("=== Province Platform Upload FAILED: ${e?.message} ===")
+                    Result.failure(e ?: Exception("上传失败"))
                 }
             } catch (e: java.util.concurrent.CancellationException) {
-                Timber.w("Platform upload cancelled")
+                Timber.w("Province platform upload cancelled")
                 Result.failure(e)
             } catch (e: Exception) {
-                Timber.e(e, "=== Platform Upload EXCEPTION ===")
+                Timber.e(e, "=== Province Platform Upload EXCEPTION ===")
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * 格式化时间戳为省平台要求的格式：yyyy-MM-dd HH:mm:ss
+     */
+    private fun formatDateTime(timestamp: Long): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        return sdf.format(java.util.Date(timestamp))
     }
 
     /**

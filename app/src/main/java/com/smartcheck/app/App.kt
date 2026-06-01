@@ -15,8 +15,10 @@ import com.smartcheck.app.utils.UsbCameraHelper
 import com.smartcheck.sdk.HandDetector
 import dagger.hilt.android.HiltAndroidApp
 import com.smartcheck.app.utils.FileLoggingTree
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import timber.log.Timber
 import java.io.File
+import java.security.Security
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.SimpleDateFormat
@@ -46,6 +48,12 @@ class App : Application(), CameraXConfig.Provider {
         Timber.plant(FileLoggingTree(this))
         
         Timber.d("[App] Application onCreate 开始")
+
+        // 注册 BouncyCastle Provider（用于 SM4 国密加解密）
+        // Android 系统自带旧版 BC，必须先移除再注册新版本
+        Security.removeProvider("BC")
+        Security.insertProviderAt(BouncyCastleProvider(), 1)
+        Timber.d("BouncyCastle Provider registered")
 
         // 初始化设备授权（MAC 白名单验证）
         DeviceAuth.init(this, "http://112.74.39.40:8080")

@@ -17,7 +17,10 @@ interface UserDao {
     
     @Query("SELECT * FROM users WHERE employeeId = :employeeId")
     suspend fun getUserByEmployeeId(employeeId: String): UserEntity?
-    
+
+    @Query("SELECT * FROM users WHERE idCardNumber = :idCardNumber LIMIT 1")
+    suspend fun getUserByIdCardNumber(idCardNumber: String): UserEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: UserEntity): Long
     

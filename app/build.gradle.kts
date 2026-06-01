@@ -152,6 +152,9 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation:2.3.7")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
     
+    // BouncyCastle (SM4 国密加解密)
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.78")
+
     // JWT
     implementation("com.auth0:java-jwt:4.4.0") {
         exclude(group = "com.google.guava")
