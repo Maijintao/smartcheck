@@ -9,8 +9,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartcheck.app.data.repository.HardwareRepository
 import com.smartcheck.app.data.repository.SettingsRepository
+import com.smartcheck.app.data.upload.CloudRecordService
 import com.smartcheck.app.data.upload.PendingUploadManager
 import com.smartcheck.app.data.upload.RecordUploadReporter
+import com.smartcheck.app.utils.DeviceAuth
+import com.smartcheck.app.utils.DeviceInfo
 import com.smartcheck.app.domain.model.toEntity
 import com.smartcheck.app.domain.model.HandStatus
 import com.smartcheck.app.domain.model.HealthCertStatus
@@ -59,6 +62,7 @@ class MainViewModel @Inject constructor(
     private val hardwareRepository: HardwareRepository,
     private val voiceService: IVoiceService,
     private val recordUploadReporter: RecordUploadReporter,
+    private val cloudRecordService: CloudRecordService,
     private val settingsRepository: SettingsRepository,
     private val userRepository: IUserRepository,
     private val recordRepository: IRecordRepository,
@@ -741,7 +745,15 @@ class MainViewModel @Inject constructor(
                         Timber.tag("MainViewModel").e(e, "Failed to upload record")
                     }
 
-                    // 入队等待上传（支持离线队列）
+                    // 上报客户云端（旧接口）
+                    val deviceSn = settingsRepository.deviceId.value.ifBlank {
+                        DeviceAuth.getCurrentDeviceMac() ?: DeviceInfo.getDeviceId(appContext)
+                    }
+                    appScope.launch {
+                        cloudRecordService.uploadCheckRecord(savedRecord, deviceSn)
+                    }
+
+                    // 入队等待上传到平台（新接口，支持离线队列）
                     pendingUploadManager.enqueue(savedRecord.id)
                 }.onFailure { e ->
                     Timber.tag("MainViewModel").e(e, "Failed to save record")
@@ -1013,7 +1025,15 @@ class MainViewModel @Inject constructor(
                     Timber.tag("MainViewModel").e(e, "Failed to upload record")
                 }
 
-                // 入队等待上传（支持离线队列）
+                // 上报客户云端（旧接口）
+                val deviceSn = settingsRepository.deviceId.value.ifBlank {
+                    DeviceAuth.getCurrentDeviceMac() ?: DeviceInfo.getDeviceId(appContext)
+                }
+                appScope.launch {
+                    cloudRecordService.uploadCheckRecord(savedRecord, deviceSn)
+                }
+
+                // 入队等待上传到平台（新接口，支持离线队列）
                 pendingUploadManager.enqueue(savedRecord.id)
             } catch (e: Exception) {
                 Timber.tag("MainViewModel").e(e, "Failed to save record")

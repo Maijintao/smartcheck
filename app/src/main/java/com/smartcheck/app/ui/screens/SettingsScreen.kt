@@ -937,7 +937,7 @@ fun SettingsScreen(
                 SettingsCard {
                     SettingsItem(
                         title = "登录页标题",
-                        subtitle = if (loginTitle.isBlank()) "欢迎使用智能晨检仪" else loginTitle,
+                        subtitle = if (loginTitle.isBlank()) "欢迎使用优信智能晨检仪" else loginTitle,
                         trailing = {
                             PillButton(
                                 text = "修改",
@@ -1129,7 +1129,7 @@ fun SettingsScreen(
                     )
                     if (dialogLabel == "登录页标题") {
                         Text(
-                            text = "预览：${dialogValue.ifBlank { "欢迎使用智能晨检仪" }}",
+                            text = "预览：${dialogValue.ifBlank { "欢迎使用优信智能晨检仪" }}",
                             fontSize = Dimens.TextSizeSmall,
                             color = Color(0xFF6B7280)
                         )

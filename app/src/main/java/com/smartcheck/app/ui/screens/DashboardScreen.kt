@@ -165,7 +165,7 @@ private fun SidebarPanel(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "智能晨检终端",
+                        text = "优信智能晨检终端",
                         fontSize = 13.sp,
                         color = textMuted
                     )
