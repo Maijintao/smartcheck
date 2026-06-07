@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(./gradlew :app:assembleRelease)",
-      "Bash(unzip -l app/build/outputs/apk/release/app-release.apk)"
+      "Bash(unzip -l app/build/outputs/apk/release/app-release.apk)",
+      "Bash(./gradlew.bat :app:compileReleaseKotlin)",
+      "Bash(./gradlew.bat :app:assembleRelease)"
     ]
   }
 }

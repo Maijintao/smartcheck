@@ -32,21 +32,45 @@ sealed class AppError : Throwable() {
     val errorCode: String? get() = null
     val errorMessage: String? get() = null
 
-    object NotFound : AppError()
-    data class ValidationError(val field: String, val errorMsg: String) : AppError()
-    data class DuplicateError(val field: String, val value: String) : AppError()
-    data class Unauthorized(val reason: String = "未授权") : AppError()
-    object Forbidden : AppError()
+    object NotFound : AppError() {
+        override val message: String? = "数据不存在"
+    }
+    data class ValidationError(val field: String, val errorMsg: String) : AppError() {
+        override val message: String? = errorMsg
+    }
+    data class DuplicateError(val field: String, val value: String) : AppError() {
+        override val message: String? = "$field 已存在: $value"
+    }
+    data class Unauthorized(val reason: String = "未授权") : AppError() {
+        override val message: String? = reason
+    }
+    object Forbidden : AppError() {
+        override val message: String? = "禁止访问"
+    }
 
-    object HardwareNotReady : AppError()
-    data class HardwareError(val device: String, val detail: String) : AppError()
+    object HardwareNotReady : AppError() {
+        override val message: String? = "硬件未就绪"
+    }
+    data class HardwareError(val device: String, val detail: String) : AppError() {
+        override val message: String? = "$device 错误: $detail"
+    }
 
-    object ModelNotLoaded : AppError()
-    data class DetectionError(val type: String, val errorMsg: String) : AppError()
-    object NoTargetDetected : AppError()
-    data class StorageError(val errorMsg: String) : AppError()
+    object ModelNotLoaded : AppError() {
+        override val message: String? = "模型未加载"
+    }
+    data class DetectionError(val type: String, val errorMsg: String) : AppError() {
+        override val message: String? = errorMsg
+    }
+    object NoTargetDetected : AppError() {
+        override val message: String? = "未检测到目标"
+    }
+    data class StorageError(val errorMsg: String) : AppError() {
+        override val message: String? = errorMsg
+    }
 
-    data class UnknownError(val errorMsg: String) : AppError()
+    data class UnknownError(val errorMsg: String) : AppError() {
+        override val message: String? = errorMsg
+    }
 
     override fun toString(): String = message ?: javaClass.simpleName
 }

@@ -31,6 +31,7 @@ import coil.compose.AsyncImage
 import com.smartcheck.app.BuildConfig
 import com.smartcheck.app.data.repository.AdminAuthRepository
 import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.viewmodel.AdminAuthViewModel
 import com.smartcheck.app.viewmodel.SettingsViewModel
 
@@ -45,6 +46,7 @@ fun AdminLoginScreen(
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var authError by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var rememberPassword by remember { mutableStateOf(true) }
     
@@ -329,7 +331,13 @@ fun AdminLoginScreen(
                                 }
                                 onLoginSuccess()
                             },
-                            onFailure = { error = it.message ?: "登录失败" }
+                            onFailure = {
+                                val msg = it.message ?: "登录失败"
+                                error = msg
+                                if (msg.contains("设备") || msg.contains("授权") || msg.contains("MAC") || msg.contains("网络") || msg.contains("白名单")) {
+                                    authError = msg
+                                }
+                            }
                         )
                     }
                 },
@@ -360,6 +368,36 @@ fun AdminLoginScreen(
                     Text(text = "忘记密码？", fontSize = Dimens.TextSizeSmall, color = primaryColor)
                 }
             }
+        }
+
+        if (authError != null) {
+            AlertDialog(
+                onDismissRequest = { authError = null },
+                title = { Text(text = "设备认证失败") },
+                text = {
+                    Column {
+                        Text(text = authError ?: "设备未授权，无法登录。")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val deviceMac = remember { DeviceAuth.getCurrentDeviceMac() ?: "无法获取" }
+                        Text(
+                            text = "本机 MAC：$deviceMac",
+                            fontSize = Dimens.TextSizeSmall,
+                            color = textMuted
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "请联系管理员将本机 MAC 地址加入白名单，或确认网络连接正常后重试。",
+                            fontSize = Dimens.TextSizeSmall,
+                            color = textMuted
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { authError = null }) {
+                        Text("知道了")
+                    }
+                }
+            )
         }
     }
 }
