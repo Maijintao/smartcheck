@@ -425,7 +425,9 @@ data class MorningCheckEmployee(
     @SerialName("id") val id: String,
     @SerialName("name") val name: String,
     @SerialName("temperature") val temperature: Float,
-    @SerialName("photo") val photo: String = ""
+    @SerialName("photo") val photo: String = "",
+    @SerialName("hand_palm_photo") val handPalmPhoto: String = "",
+    @SerialName("hand_back_photo") val handBackPhoto: String = ""
 )
 
 /**
@@ -446,6 +448,26 @@ data class MorningCheckUploadData(
     @SerialName("recordId") val recordId: String = "",
     @SerialName("processTime") val processTime: Int = 0,
     @SerialName("warnings") val warnings: List<String> = emptyList()
+)
+
+/**
+ * 设备心跳响应数据
+ */
+@Serializable
+data class DeviceHeartbeatData(
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("last_heartbeat") val lastHeartbeat: String = ""
+)
+
+/**
+ * 设备心跳响应
+ */
+@Serializable
+data class DeviceHeartbeatResponse(
+    @SerialName("code") val code: Int,
+    @SerialName("message") val message: String,
+    @SerialName("data") val data: DeviceHeartbeatData? = null
 )
 
 /**

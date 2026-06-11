@@ -15,12 +15,15 @@ import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.data.repository.RecordRepository
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.smartcheck.app.data.upload.ConnectionTestResult
+import com.smartcheck.app.data.upload.DeviceHeartbeatManager
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val adminAuthRepository: AdminAuthRepository,
     private val recordRepository: RecordRepository,
+    private val deviceHeartbeatManager: DeviceHeartbeatManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -48,6 +51,7 @@ class SettingsViewModel @Inject constructor(
     val deviceId: StateFlow<String> = settingsRepository.deviceId
     val platformUrl: StateFlow<String> = settingsRepository.platformUrl
     val apiKey: StateFlow<String> = settingsRepository.apiKey
+    val heartbeatInterval: StateFlow<Int> = settingsRepository.heartbeatInterval
 
     fun setVoiceEnabled(enabled: Boolean) {
         settingsRepository.setVoiceEnabled(enabled)
@@ -67,6 +71,7 @@ class SettingsViewModel @Inject constructor(
     fun setDeviceId(value: String) = settingsRepository.setDeviceId(value)
     fun setPlatformUrl(value: String) = settingsRepository.setPlatformUrl(value)
     fun setApiKey(value: String) = settingsRepository.setApiKey(value)
+    fun setHeartbeatInterval(value: Int) = settingsRepository.setHeartbeatInterval(value)
 
     fun setAccount(value: String) {
         settingsRepository.setAccount(value)
@@ -74,6 +79,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setPassword(value: String) = adminAuthRepository.setPassword(value)
+
+    /**
+     * 测试平台连接
+     */
+    suspend fun testPlatformConnection(): ConnectionTestResult {
+        return deviceHeartbeatManager.testConnection()
+    }
 
     fun clearRecordImages() {
         viewModelScope.launch(Dispatchers.IO) {

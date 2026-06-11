@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,9 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,6 +87,9 @@ fun DashboardScreen(
                 textMain = textMain,
                 textMuted = textMuted,
                 locationTitle = displayName,
+                userName = userName,
+                adminAvatar = adminAvatar,
+                onSettingsClick = onNavigateSettings,
                 onExitClick = onNavigateSettings
             )
 
@@ -102,9 +102,6 @@ fun DashboardScreen(
                 primaryLight = primaryLight,
                 textMain = textMain,
                 textMuted = textMuted,
-                adminAvatar = adminAvatar,
-                userName = userName,
-                onNavigateSettings = onNavigateSettings,
                 onNavigateCheck = onNavigateCheck,
                 onNavigateEmployees = onNavigateEmployees,
                 onNavigateRecords = onNavigateRecords,
@@ -122,6 +119,9 @@ private fun SidebarPanel(
     textMain: Color,
     textMuted: Color,
     locationTitle: String,
+    userName: String,
+    adminAvatar: String,
+    onSettingsClick: () -> Unit,
     onExitClick: () -> Unit
 ) {
     Surface(
@@ -134,10 +134,11 @@ private fun SidebarPanel(
                 .fillMaxSize()
                 .padding(horizontal = 24.dp, vertical = 22.dp)
         ) {
+            // 机构名
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 18.dp),
+                    .padding(bottom = 14.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 Box(
@@ -174,16 +175,75 @@ private fun SidebarPanel(
 
             Divider(color = Color(0xFFE2E8F0))
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 设置 + 超级管理员标签
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    color = primaryLight,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clickable(onClick = onSettingsClick)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = primaryBlue,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "设置",
+                            fontSize = 14.sp,
+                            color = primaryBlue,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Surface(
+                    color = primaryLight,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = primaryBlue,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = userName,
+                            fontSize = 14.sp,
+                            color = primaryBlue,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "标准晨检流程",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
                 color = textMain
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             MorningCheckStepper(
                 primaryBlue = primaryBlue,
@@ -208,7 +268,7 @@ private fun SidebarPanel(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "退出系统",
+                        text = "退出登录",
                         color = Color(0xFFEF4444),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
@@ -226,58 +286,68 @@ private fun MorningCheckStepper(
     textMuted: Color
 ) {
     val steps = listOf(
-        StepItem("刷脸验温", "面部识别与体温检测"),
-        StepItem("手部双面识别", "检查手心手背卫生"),
-        StepItem("身体不适确认", "确认当日健康状况"),
-        StepItem("生成晨检记录", "完成打卡并存档")
+        StepItem("刷脸验温", "面部识别与体温检测", Icons.Default.VerifiedUser),
+        StepItem("手部双面识别", "检查手心手背卫生", Icons.Default.Badge),
+        StepItem("身体不适确认", "确认当日健康状况", Icons.Default.Assessment),
+        StepItem("生成晨检记录", "完成打卡并存档", Icons.Default.ListAlt)
     )
 
     Column {
         steps.forEachIndexed { index, item ->
             val isLast = index == steps.lastIndex
+            val stepNumber = index + 1
 
-            Row(verticalAlignment = Alignment.Top) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .border(3.dp, primaryBlue, CircleShape)
-                            .background(
-                                color = if (isLast) primaryBlue else Color.White,
-                                shape = CircleShape
-                            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF8FAFC))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 蓝色圆形图标
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(primaryBlue, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
-
-                    if (!isLast) {
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(34.dp)
-                                .background(Color(0xFFE2E8F0))
-                        )
-                    }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.title,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         color = textMain,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = item.subtitle,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = textMuted
                     )
                 }
+
+                // 编号
+                Text(
+                    text = "0$stepNumber",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryBlue.copy(alpha = 0.15f)
+                )
             }
 
             if (!isLast) {
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
         }
     }
@@ -290,94 +360,26 @@ private fun MainPanel(
     primaryLight: Color,
     textMain: Color,
     textMuted: Color,
-    adminAvatar: String,
-    userName: String,
-    onNavigateSettings: () -> Unit,
     onNavigateCheck: () -> Unit,
     onNavigateEmployees: () -> Unit,
     onNavigateRecords: () -> Unit,
     onNavigateExport: () -> Unit
 ) {
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onNavigateSettings) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "设置",
-                    tint = textMuted
-                )
-            }
-
-            Surface(
-                color = Color.White,
-                shadowElevation = 2.dp,
-                shape = RoundedCornerShape(30.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (adminAvatar.isNotBlank()) {
-                        AsyncImage(
-                            model = adminAvatar,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(primaryLight),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .background(primaryLight, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = primaryBlue,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = userName,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = textMain,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 180.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        FeatureGrid(
-            modifier = Modifier.fillMaxSize(),
-            primaryBlue = primaryBlue,
-            textMain = textMain,
-            textMuted = textMuted,
-            onNavigateCheck = onNavigateCheck,
-            onNavigateEmployees = onNavigateEmployees,
-            onNavigateRecords = onNavigateRecords,
-            onNavigateExport = onNavigateExport
-        )
-    }
+    // 功能卡片区域 - 2x2网格
+    FeatureCardLayout(
+        modifier = modifier.fillMaxSize(),
+        primaryBlue = primaryBlue,
+        textMain = textMain,
+        textMuted = textMuted,
+        onNavigateCheck = onNavigateCheck,
+        onNavigateEmployees = onNavigateEmployees,
+        onNavigateRecords = onNavigateRecords,
+        onNavigateExport = onNavigateExport
+    )
 }
 
 @Composable
-private fun FeatureGrid(
+private fun FeatureCardLayout(
     modifier: Modifier,
     primaryBlue: Color,
     textMain: Color,
@@ -387,53 +389,139 @@ private fun FeatureGrid(
     onNavigateRecords: () -> Unit,
     onNavigateExport: () -> Unit
 ) {
-    val entries = listOf(
-        FeatureEntry(
-            label = "我要晨检",
-            description = "开始每日员工健康打卡",
-            icon = Icons.Default.VerifiedUser,
-            kind = FeatureKind.Primary,
-            onClick = onNavigateCheck
-        ),
-        FeatureEntry(
-            label = "员工管理",
-            description = "录入与管理员工面部及基本信息",
-            icon = Icons.Default.Badge,
-            kind = FeatureKind.Staff,
-            onClick = onNavigateEmployees
-        ),
-        FeatureEntry(
-            label = "晨检记录",
-            description = "查看历史打卡详情与异常状态",
-            icon = Icons.Default.ListAlt,
-            kind = FeatureKind.Record,
-            onClick = onNavigateRecords
-        ),
-        FeatureEntry(
-            label = "报表导出",
-            description = "生成并导出每日/每周统计报表",
-            icon = Icons.Default.Assessment,
-            kind = FeatureKind.Report,
-            onClick = onNavigateExport
-        )
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // 第一行：大图(我要晨检) + 小图(员工管理)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            PrimaryFeatureCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                primaryBlue = primaryBlue,
+                onClick = onNavigateCheck
+            )
+
+            SmallFeatureCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                label = "员工管理",
+                description = "录入与管理员工面部及基本信息",
+                icon = Icons.Default.Badge,
+                iconBg = Color(0xFFE0E7FF),
+                iconTint = Color(0xFF4F46E5),
+                textMain = textMain,
+                textMuted = textMuted,
+                onClick = onNavigateEmployees
+            )
+        }
+
+        // 第二行：小图(晨检记录) + 小图(报表导出)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            SmallFeatureCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                label = "晨检记录",
+                description = "查看历史打卡详情与异常状态",
+                icon = Icons.Default.ListAlt,
+                iconBg = Color(0xFFDCFCE7),
+                iconTint = Color(0xFF16A34A),
+                textMain = textMain,
+                textMuted = textMuted,
+                onClick = onNavigateRecords
+            )
+
+            SmallFeatureCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                label = "报表导出",
+                description = "生成并导出每日/每周统计报表",
+                icon = Icons.Default.Assessment,
+                iconBg = Color(0xFFFEF08A),
+                iconTint = Color(0xFFCA8A04),
+                textMain = textMain,
+                textMuted = textMuted,
+                onClick = onNavigateExport
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrimaryFeatureCard(
+    modifier: Modifier = Modifier,
+    primaryBlue: Color,
+    onClick: () -> Unit
+) {
+    val gradientBrush = Brush.linearGradient(
+        colors = listOf(Color(0xFF3B82F6), Color(0xFF60A5FA)),
+        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+        end = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
     )
 
-    BoxWithConstraints(modifier = modifier) {
-        val itemHeight = (maxHeight - 24.dp) / 2
-
-        LazyVerticalGrid(
-            modifier = Modifier.fillMaxSize(),
-            columns = GridCells.Fixed(2),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp)
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(gradientBrush)
+                .padding(32.dp)
         ) {
-            items(entries) { entry ->
-                FeatureCard(
-                    entry = entry,
-                    primaryBlue = primaryBlue,
-                    textMain = textMain,
-                    textMuted = textMuted,
-                    modifier = Modifier.height(itemHeight)
+            // 盾牌装饰图标在右下
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 10.dp, y = 10.dp)
+                    .background(
+                        color = Color.White.copy(alpha = 0.15f),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.VerifiedUser,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.size(56.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Top
+            ) {
+                Text(
+                    text = "我要晨检",
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "开始每日员工健康打卡",
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.85f)
                 )
             }
         }
@@ -441,111 +529,65 @@ private fun FeatureGrid(
 }
 
 @Composable
-private fun FeatureCard(
-    entry: FeatureEntry,
-    primaryBlue: Color,
+private fun SmallFeatureCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    description: String,
+    icon: ImageVector,
+    iconBg: Color,
+    iconTint: Color,
     textMain: Color,
     textMuted: Color,
-    modifier: Modifier = Modifier
+    onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(20.dp)
-
-    val container = when (entry.kind) {
-        FeatureKind.Primary -> null
-        else -> Color.White
-    }
-
-    val iconWrap = when (entry.kind) {
-        FeatureKind.Primary -> Color.White.copy(alpha = 0.20f)
-        FeatureKind.Staff -> Color(0xFFE0E7FF)
-        FeatureKind.Record -> Color(0xFFDCFCE7)
-        FeatureKind.Report -> Color(0xFFFEF08A)
-    }
-
-    val iconTint = when (entry.kind) {
-        FeatureKind.Primary -> Color.White
-        FeatureKind.Staff -> Color(0xFF4F46E5)
-        FeatureKind.Record -> Color(0xFF16A34A)
-        FeatureKind.Report -> Color(0xFFCA8A04)
-    }
-
-    val titleColor = if (entry.kind == FeatureKind.Primary) Color.White else textMain
-    val descColor = if (entry.kind == FeatureKind.Primary) Color.White else textMuted
-
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = entry.onClick),
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = container ?: Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    if (entry.kind == FeatureKind.Primary) {
-                        Brush.linearGradient(listOf(primaryBlue, Color(0xFF3B82F6)))
-                    } else {
-                        Brush.linearGradient(listOf(Color.White, Color.White))
-                    }
-                )
-                .padding(horizontal = 22.dp, vertical = 22.dp)
+                .padding(28.dp)
         ) {
+            // 图标装饰在右下
             Box(
                 modifier = Modifier
-                    .size(150.dp)
+                    .size(100.dp)
                     .align(Alignment.BottomEnd)
-                    .offset(x = 26.dp, y = 26.dp)
+                    .offset(x = 10.dp, y = 10.dp)
                     .background(
-                        brush = if (entry.kind == FeatureKind.Primary) {
-                            Brush.radialGradient(
-                                colors = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
-                            )
-                        } else {
-                            Brush.linearGradient(
-                                colors = listOf(Color.Black.copy(alpha = 0.03f), Color.Transparent)
-                            )
-                        },
+                        color = iconBg.copy(alpha = 0.5f),
                         shape = CircleShape
-                    )
-            )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint.copy(alpha = 0.4f),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
 
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Top
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .background(iconWrap, RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = entry.icon,
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 Text(
-                    text = entry.label,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = titleColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = label,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textMain
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = entry.description,
+                    text = description,
                     fontSize = 15.sp,
-                    color = descColor,
+                    color = textMuted,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -556,20 +598,6 @@ private fun FeatureCard(
 
 private data class StepItem(
     val title: String,
-    val subtitle: String
-)
-
-private enum class FeatureKind {
-    Primary,
-    Staff,
-    Record,
-    Report
-}
-
-private data class FeatureEntry(
-    val label: String,
-    val description: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val kind: FeatureKind,
-    val onClick: () -> Unit
+    val subtitle: String,
+    val icon: ImageVector
 )

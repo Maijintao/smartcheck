@@ -293,7 +293,6 @@ fun HomeScreen(
     val successBg = Color(0xFFDCFCE7)
     val warning = Color(0xFFF59E0B)
     val danger = Color(0xFFEF4444)
-    val dangerBg = Color(0xFFFEE2E2)
 
     Column(
         modifier = Modifier
@@ -487,491 +486,241 @@ fun HomeScreen(
                     .fillMaxHeight()
                     .background(panelBg)
             ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(panelBgAlt)
-                    .padding(horizontal = 24.dp, vertical = 22.dp)
-            ) {
-                val context = LocalContext.current
-                val faceFile = FileUtil.getRecordImageFile(context, uiState.faceImagePath)?.takeIf { it.exists() }
-                val faceModel = faceFile ?: faceSnapshot
+                // 顶部用户信息区
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(panelBgAlt)
+                        .padding(horizontal = 24.dp, vertical = 22.dp)
+                ) {
+                    val context = LocalContext.current
+                    val faceFile = FileUtil.getRecordImageFile(context, uiState.faceImagePath)?.takeIf { it.exists() }
+                    val faceModel = faceFile ?: faceSnapshot
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(borderColor)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = rememberRipple(bounded = true)
-                            ) { viewModel.retakeFace() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (faceModel != null) {
-                            AsyncImage(
-                                model = faceModel,
-                                contentDescription = "头像",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(36.dp)
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 头像 - 蓝色圆形背景
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(Color(0xFFDBEAFE)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (faceModel != null) {
+                                AsyncImage(
+                                    model = faceModel,
+                                    contentDescription = "头像",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = primaryBlue,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        val nameText = uiState.currentUserName.ifBlank { "陌生人" }
-                        val badgeText = if (uiState.currentUserId == null) "身份识别中..." else "已识别"
+                        Column(modifier = Modifier.weight(1f)) {
+                            val nameText = uiState.currentUserName.ifBlank { "陌生人" }
+                            val badgeText = if (uiState.currentUserId == null) "身份识别中..." else "已识别"
 
-                        Text(
-                            text = nameText,
-                            color = textMain,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(color = Color(0xFFF1F5F9), shape = RoundedCornerShape(6.dp)) {
+                            Text(
+                                text = nameText,
+                                color = textMain,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = badgeText,
                                 color = textMuted,
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 实时体温测定 + 健康证状态 并排卡片
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // 实时体温测定
+                        InfoCard(
+                            modifier = Modifier.weight(1f),
+                            title = "实时体温测定",
+                            content = {
+                                val isReadingTemp = uiState.currentTemp == 0f || uiState.state == CheckState.TEMP_MEASURING
+                                if (isReadingTemp) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        androidx.compose.material3.CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color = warning
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "读取中...",
+                                            color = warning,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                } else {
+                                    val isHigh = uiState.currentTemp >= 37.3f && uiState.currentTemp > 0f
+                                    Text(
+                                        text = formatTemp(uiState.currentTemp),
+                                        color = if (isHigh) danger else success,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        )
+
+                        // 健康证状态
+                        InfoCard(
+                            modifier = Modifier.weight(1f),
+                            title = "健康证状态",
+                            content = {
+                                val days = uiState.healthCertDaysRemaining
+                                val certText = if (days == null) "暂无数据" else formatHealthCert(days)
+                                Text(
+                                    text = certText,
+                                    color = if (days != null && days < 0) danger else textMuted,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // 手部卫生检测区域
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 18.dp)
+                ) {
+                    Text(
+                        text = "手部卫生检测",
+                        color = textMain,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "请依次完成手心与手背检测",
+                        color = textMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val context = LocalContext.current
+
+                    // 第一步：手心检测
+                    HandCheckStepCard(
+                        stepTitle = "第一步：手心检测",
+                        stepHint = "请以此完成手心与手背检测",
+                        isActive = uiState.state == CheckState.HAND_PALM_CHECKING,
+                        isDone = uiState.handPalmPath != null,
+                        handImagePath = uiState.handPalmPath,
+                        handSnapshot = handFrontShot,
+                        handInfos = uiState.handPalmInfos,
+                        frameWidth = uiState.handPalmFrameWidth ?: lastFrameWidth,
+                        frameHeight = uiState.handPalmFrameHeight ?: lastFrameHeight,
+                        placeholderTitle = "手心",
+                        placeholderHint = "等待拍摄",
+                        borderColor = borderColor,
+                        panelBgAlt = panelBgAlt,
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        primaryBlue = primaryBlue,
+                        primaryDark = primaryDark,
+                        success = success,
+                        successBg = successBg,
+                        danger = danger,
+                        onRetake = { viewModel.retakeHandPalm() }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 第二步：手背检测
+                    HandCheckStepCard(
+                        stepTitle = "第二步：手背检测",
+                        stepHint = "",
+                        isActive = uiState.state == CheckState.HAND_BACK_CHECKING,
+                        isDone = uiState.handBackPath != null,
+                        handImagePath = uiState.handBackPath,
+                        handSnapshot = handBackShot,
+                        handInfos = uiState.handBackInfos,
+                        frameWidth = uiState.handBackFrameWidth ?: lastFrameWidth,
+                        frameHeight = uiState.handBackFrameHeight ?: lastFrameHeight,
+                        placeholderTitle = "手背",
+                        placeholderHint = "等待拍摄",
+                        borderColor = borderColor,
+                        panelBgAlt = panelBgAlt,
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        primaryBlue = primaryBlue,
+                        primaryDark = primaryDark,
+                        success = success,
+                        successBg = successBg,
+                        danger = danger,
+                        onRetake = { viewModel.retakeHandBack() }
+                    )
+                }
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(panelBg)
-                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                        .padding(16.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val isReadingTemp = uiState.currentTemp == 0f || uiState.state == CheckState.TEMP_MEASURING
-                        val isHigh = uiState.currentTemp >= 37.3f && uiState.currentTemp > 0f
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "实时体温测定",
-                                color = textMuted,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            if (isReadingTemp) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    androidx.compose.material3.CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = warning
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "读取中...",
-                                        color = warning,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = formatTemp(uiState.currentTemp),
-                                    color = if (isHigh) danger else success,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "健康证状态",
-                                color = textMuted,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            val days = uiState.healthCertDaysRemaining
-                            val certText = if (days == null) "暂无数据" else formatHealthCert(days)
-                            Text(
-                                text = certText,
-                                color = if (days != null && days < 0) danger else textMuted,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 18.dp)
-            ) {
-                Text(
-                    text = "手部卫生检测",
-                    color = textMain,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                        .height(1.dp)
+                        .background(borderColor)
                 )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "请依次完成手心与手背检测",
-                    color = textMuted,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(14.dp))
 
-                val context = LocalContext.current
-                val handThumbAspectRatio = 16f / 9f
-
-                val palmActive = uiState.state == CheckState.HAND_PALM_CHECKING
-                val palmDone = uiState.handPalmPath != null
-                val palmStatusText = when {
-                    palmActive -> "进行中"
-                    palmDone -> "已完成"
-                    else -> "待开始"
-                }
-                val palmChipBg = when {
-                    palmActive -> primaryBlue.copy(alpha = 0.12f)
-                    palmDone -> successBg
-                    else -> Color(0xFFF1F5F9)
-                }
-                val palmChipText = when {
-                    palmActive -> primaryDark
-                    palmDone -> success
-                    else -> textMuted
-                }
-
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(panelBgAlt)
-                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                        .padding(16.dp)
+                        .padding(horizontal = 24.dp, vertical = 18.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    val canSubmit = uiState.state != CheckState.SYMPTOM_CHECKING && uiState.handPalmPath != null && uiState.handBackPath != null
+                    val buttonText = when {
+                        uiState.isSubmitting -> "提交中..."
+                        canSubmit -> "提交并上岗"
+                        else -> "检测未完成，无法提交"
+                    }
+
+                    Button(
+                        onClick = { viewModel.finalizeCheckRecord() },
+                        enabled = canSubmit && !uiState.isSubmitting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(Dimens.ButtonHeight),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryDark,
+                            disabledContainerColor = Color(0xFFCBD5E1),
+                            disabledContentColor = Color(0xFF64748B)
+                        )
                     ) {
                         Text(
-                            text = "第一步：手心检测",
-                            color = textMain,
+                            text = buttonText,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Surface(color = palmChipBg, shape = RoundedCornerShape(999.dp)) {
-                            Text(
-                                text = palmStatusText,
-                                color = palmChipText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = when {
-                            palmActive -> "请张开手掌，对准取景框"
-                            palmDone -> "可点击卡片重新拍摄"
-                            else -> "等待开始"
-                        },
-                        color = textMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .aspectRatio(handThumbAspectRatio)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(borderColor)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = rememberRipple(bounded = true)
-                                ) { viewModel.retakeHandPalm() }
-                        ) {
-                            val palmFile = FileUtil.getRecordImageFile(context, uiState.handPalmPath)?.takeIf { it.exists() }
-                            val palmModel = palmFile ?: handFrontShot
-                            if (palmModel != null) {
-                                AsyncImage(
-                                    model = palmModel,
-                                    contentDescription = "手心",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                PlaceholderHandTile(
-                                    title = "手心",
-                                    hint = if (uiState.state == CheckState.HAND_PALM_CHECKING) "请对准手心" else "等待拍摄",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            if (palmModel != null && uiState.handPalmInfos.isNotEmpty()) {
-                                val frameW = uiState.handPalmFrameWidth ?: lastFrameWidth
-                                val frameH = uiState.handPalmFrameHeight ?: lastFrameHeight
-                                HandResultOverlay(
-                                    handInfos = uiState.handPalmInfos,
-                                    frameWidth = frameW,
-                                    frameHeight = frameH,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        val hasIssue = uiState.handPalmInfos.any { it.hasForeignObject }
-                        val issueSummary = uiState.handPalmInfos.flatMap { info ->
-                            if (info.foreignObjects.isNotEmpty()) {
-                                info.foreignObjects.map { it.label }
-                            } else if (info.hasForeignObject) {
-                                listOf(info.label)
-                            } else {
-                                emptyList()
-                            }
-                        }.distinct().joinToString("，")
-
-                        if (hasIssue) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.Error,
-                                    contentDescription = null,
-                                    tint = danger,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = issueSummary.ifBlank { "异常" },
-                                    color = danger,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = success,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                val backActive = uiState.state == CheckState.HAND_BACK_CHECKING
-                val backDone = uiState.handBackPath != null
-                val backStatusText = when {
-                    backActive -> "进行中"
-                    backDone -> "已完成"
-                    else -> "待开始"
-                }
-                val backChipBg = when {
-                    backActive -> primaryBlue.copy(alpha = 0.12f)
-                    backDone -> successBg
-                    else -> Color(0xFFF1F5F9)
-                }
-                val backChipText = when {
-                    backActive -> primaryDark
-                    backDone -> success
-                    else -> textMuted
-                }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(panelBgAlt)
-                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "第二步：手背检测",
-                            color = textMain,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Surface(color = backChipBg, shape = RoundedCornerShape(999.dp)) {
-                            Text(
-                                text = backStatusText,
-                                color = backChipText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = when {
-                            backActive -> "请伸直手背，对准取景框"
-                            backDone -> "可点击卡片重新拍摄"
-                            else -> "等待开始"
-                        },
-                        color = textMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .aspectRatio(handThumbAspectRatio)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(borderColor)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = rememberRipple(bounded = true)
-                                ) { viewModel.retakeHandBack() }
-                        ) {
-                            val backFile = FileUtil.getRecordImageFile(context, uiState.handBackPath)?.takeIf { it.exists() }
-                            val backModel = backFile ?: handBackShot
-                            if (backModel != null) {
-                                AsyncImage(
-                                    model = backModel,
-                                    contentDescription = "手背",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                PlaceholderHandTile(
-                                    title = "手背",
-                                    hint = if (uiState.state == CheckState.HAND_BACK_CHECKING) "请对准手背" else "等待拍摄",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            if (backModel != null && uiState.handBackInfos.isNotEmpty()) {
-                                val frameW = uiState.handBackFrameWidth ?: lastFrameWidth
-                                val frameH = uiState.handBackFrameHeight ?: lastFrameHeight
-                                HandResultOverlay(
-                                    handInfos = uiState.handBackInfos,
-                                    frameWidth = frameW,
-                                    frameHeight = frameH,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        val hasIssue = uiState.handBackInfos.any { it.hasForeignObject }
-                        val issueSummary = uiState.handBackInfos.flatMap { info ->
-                            if (info.foreignObjects.isNotEmpty()) {
-                                info.foreignObjects.map { it.label }
-                            } else if (info.hasForeignObject) {
-                                listOf(info.label)
-                            } else {
-                                emptyList()
-                            }
-                        }.distinct().joinToString("，")
-
-                        if (hasIssue) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.Error,
-                                    contentDescription = null,
-                                    tint = danger,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = issueSummary.ifBlank { "异常" },
-                                    color = danger,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = success,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
                     }
                 }
             }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(borderColor)
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 18.dp)
-            ) {
-                val canSubmit = uiState.state != CheckState.SYMPTOM_CHECKING && uiState.handPalmPath != null && uiState.handBackPath != null
-                val buttonText = when {
-                    uiState.isSubmitting -> "提交中..."
-                    canSubmit -> "提交并上岗"
-                    else -> "检测未完成，无法提交"
-                }
-
-                Button(
-                    onClick = { viewModel.finalizeCheckRecord() },
-                    enabled = canSubmit && !uiState.isSubmitting,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(Dimens.ButtonHeight),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = primaryDark,
-                        disabledContainerColor = Color(0xFFCBD5E1),
-                        disabledContentColor = Color(0xFF64748B)
-                    )
-                ) {
-                    Text(text = buttonText)
-                }
-            }
-        }
         }
     }
 
@@ -1572,4 +1321,190 @@ private fun createPreviewBitmap(source: Bitmap, maxWidth: Int = 320): Bitmap {
     val ratio = source.height.toFloat() / source.width.toFloat()
     val targetHeight = (maxWidth * ratio).toInt().coerceAtLeast(1)
     return Bitmap.createScaledBitmap(source, maxWidth, targetHeight, true)
+}
+
+@Composable
+private fun InfoCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+            .padding(14.dp)
+    ) {
+        Text(
+            text = title,
+            color = Color(0xFF64748B),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        content()
+    }
+}
+
+@Composable
+private fun HandCheckStepCard(
+    stepTitle: String,
+    stepHint: String,
+    isActive: Boolean,
+    isDone: Boolean,
+    handImagePath: String?,
+    handSnapshot: Bitmap?,
+    handInfos: List<com.smartcheck.sdk.HandInfo>,
+    frameWidth: Int,
+    frameHeight: Int,
+    placeholderTitle: String,
+    placeholderHint: String,
+    borderColor: Color,
+    panelBgAlt: Color,
+    textMain: Color,
+    textMuted: Color,
+    primaryBlue: Color,
+    primaryDark: Color,
+    success: Color,
+    successBg: Color,
+    danger: Color,
+    onRetake: () -> Unit
+) {
+    val context = LocalContext.current
+    val statusText = when {
+        isActive -> "待开始"
+        isDone -> "已完成"
+        else -> "待开始"
+    }
+    val chipBg = when {
+        isActive -> primaryBlue.copy(alpha = 0.12f)
+        isDone -> successBg
+        else -> Color(0xFFF1F5F9)
+    }
+    val chipText = when {
+        isActive -> primaryDark
+        isDone -> success
+        else -> textMuted
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(panelBgAlt)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = stepTitle,
+                    color = textMain,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (stepHint.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stepHint,
+                        color = textMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Surface(color = chipBg, shape = RoundedCornerShape(999.dp)) {
+                Text(
+                    text = statusText,
+                    color = chipText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(borderColor)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = rememberRipple(bounded = true)
+                    ) { onRetake() }
+            ) {
+                val imageFile = FileUtil.getRecordImageFile(context, handImagePath)?.takeIf { it.exists() }
+                val imageModel = imageFile ?: handSnapshot
+                if (imageModel != null) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = placeholderTitle,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    PlaceholderHandTile(
+                        title = placeholderTitle,
+                        hint = placeholderHint,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                if (imageModel != null && handInfos.isNotEmpty()) {
+                    HandResultOverlay(
+                        handInfos = handInfos,
+                        frameWidth = frameWidth,
+                        frameHeight = frameHeight,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            val hasIssue = handInfos.any { it.hasForeignObject }
+            val issueSummary = handInfos.flatMap { info ->
+                if (info.foreignObjects.isNotEmpty()) {
+                    info.foreignObjects.map { it.label }
+                } else if (info.hasForeignObject) {
+                    listOf(info.label)
+                } else {
+                    emptyList()
+                }
+            }.distinct().joinToString("，")
+
+            if (hasIssue) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = null,
+                        tint = danger,
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = issueSummary.ifBlank { "异常" },
+                        color = danger,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = success,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+        }
+    }
 }

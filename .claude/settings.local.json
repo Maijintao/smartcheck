@@ -7,7 +7,23 @@
       "Bash(./gradlew.bat :app:compileDebugKotlin)",
       "Bash(./gradlew.bat clean *)",
       "Read(//c/Users/82417/Documents/xwechat_files/wxid_nkm8wi94cm7822_b18e/msg/file/2026-05/**)",
-      "Bash(gradlew.bat :app:assembleRelease)"
+      "Bash(gradlew.bat :app:assembleRelease)",
+      "Bash(where pandoc *)",
+      "Bash(where wkhtmltopdf *)",
+      "Bash(where node *)",
+      "Bash(where python *)",
+      "Bash(where chrome *)",
+      "Bash(where msedge *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Read(//d/新建文件夹/**)",
+      "Bash(python -c \"import markdown; print\\(markdown.__version__\\)\")",
+      "Bash(python -m pip install markdown)",
+      "Bash(cp \"C:/Users/82417/Desktop/晨检ui/登录-实验室.png\" app/src/main/res/drawable/login_bg.png)",
+      "Bash(cp \"C:/Users/82417/Desktop/晨检ui/首页.png\" app/src/main/res/drawable/dashboard_bg.png)",
+      "Bash(./gradlew :app:compileDebugKotlin)"
     ]
   }
 }

@@ -13,7 +13,8 @@ import javax.inject.Singleton
 @Singleton
 class NetworkMonitor @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val pendingUploadManager: PendingUploadManager
+    private val pendingUploadManager: PendingUploadManager,
+    private val deviceHeartbeatManager: DeviceHeartbeatManager
 ) {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -21,8 +22,9 @@ class NetworkMonitor @Inject constructor(
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             super.onAvailable(network)
-            Timber.d("Network available, triggering pending uploads")
+            Timber.d("Network available, triggering pending uploads and heartbeat")
             pendingUploadManager.enqueue(0L)
+            deviceHeartbeatManager.triggerImmediate()
         }
 
         override fun onLost(network: Network) {

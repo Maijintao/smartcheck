@@ -324,7 +324,8 @@ class MainViewModel @Inject constructor(
                             
                             if (result != null && result.userId != null) {
                                 lastRecognizedUserId = result.userId
-                                onFaceRecognized(result.userId, result.userName ?: "未知用户", result.confidence)
+                                val userName = result.userName?.takeIf { it.isNotBlank() } ?: "未知用户"
+                                onFaceRecognized(result.userId, userName, result.confidence)
                             } else if (result != null) {
                                 _uiState.update {
                                     it.copy(
@@ -719,9 +720,14 @@ class MainViewModel @Inject constructor(
                     backImagePath = currentBackPath
                 )
 
+                val actualUserName = state.currentUserName.takeIf { it.isNotBlank() }
+                    ?: user?.name?.takeIf { it.isNotBlank() }
+                    ?: "未知用户"
+                Timber.tag("MainViewModel").d("saveRecord userName: state='${state.currentUserName}', db='${user?.name}', final='$actualUserName'")
+
                 val result = morningCheckUseCase.saveRecord(
                     userId = state.currentUserId,
-                    userName = state.currentUserName,
+                    userName = actualUserName,
                     employeeId = user?.employeeId?.trim().orEmpty(),
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,
@@ -975,9 +981,14 @@ class MainViewModel @Inject constructor(
                     else -> HealthCertStatus.VALID
                 }
 
+                val actualUserName = state.currentUserName.takeIf { it.isNotBlank() }
+                    ?: user?.name?.takeIf { it.isNotBlank() }
+                    ?: "未知用户"
+                Timber.tag("MainViewModel").d("saveCheckRecord userName: state='${state.currentUserName}', db='${user?.name}', final='$actualUserName'")
+
                 val record = Record(
                     userId = state.currentUserId,
-                    userName = state.currentUserName,
+                    userName = actualUserName,
                     employeeId = user?.employeeId?.trim().orEmpty(),
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,

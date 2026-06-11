@@ -1,10 +1,9 @@
 package com.smartcheck.app.data.upload
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Base64
-import com.smartcheck.app.api.model.CloudCheckRecordRequest
-import com.smartcheck.app.api.model.CloudCheckRecordResponse
-import com.smartcheck.app.api.model.HandCheckParam
 import com.smartcheck.app.api.model.MorningCheckEmployee
 import com.smartcheck.app.api.model.MorningCheckUploadRequest
 import com.smartcheck.app.api.model.MorningCheckUploadResponse
@@ -19,7 +18,7 @@ import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.net.InetAddress
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,8 +29,6 @@ class CloudRecordService @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     companion object {
-        private const val BASE_URL = "http://api.qhk12.iyouxin.cn:50082"
-        private const val ENDPOINT = "/kitchen/morningCheck/saveData"
         private const val PLATFORM_ENDPOINT = "/api/device/morning-check/upload"
     }
 
@@ -50,16 +47,22 @@ class CloudRecordService @Inject constructor(
                 }
 
                 Timber.d("=== Platform Upload Start ===")
-                Timber.d("Device ID: $deviceId, Record: ${record.employeeId} / ${record.userName}")
+                Timber.d("Device ID: $deviceId")
+                Timber.d("Record fields: employeeId=${record.employeeId}, userName='${record.userName}', temp=${record.temperature}, checkTime=${record.checkTime}")
+                Timber.d("Image paths: face=${record.faceImagePath}, palm=${record.handPalmPath}, back=${record.handBackPath}")
 
                 val facePhoto = getImageBase64(record.faceImagePath)
-                Timber.d("Face photo size: ${facePhoto.length}")
+                val palmPhoto = getImageBase64(record.handPalmPath)
+                val backPhoto = getImageBase64(record.handBackPath)
+                Timber.d("Base64 lengths: face=${facePhoto.length}, palm=${palmPhoto.length}, back=${backPhoto.length}")
 
                 val employee = MorningCheckEmployee(
                     id = record.employeeId,
                     name = record.userName,
                     temperature = record.temperature,
-                    photo = facePhoto
+                    photo = facePhoto,
+                    handPalmPhoto = palmPhoto,
+                    handBackPhoto = backPhoto
                 )
 
                 val request = MorningCheckUploadRequest(
@@ -67,6 +70,7 @@ class CloudRecordService @Inject constructor(
                     timestamp = record.checkTime,
                     employees = listOf(employee)
                 )
+                Timber.d("Request JSON: deviceId=$deviceId, timestamp=${record.checkTime}, employee=${employee}")
 
                 val url = "$platformUrl$PLATFORM_ENDPOINT"
                 Timber.d("POST $url")
@@ -104,138 +108,72 @@ class CloudRecordService @Inject constructor(
         }
     }
 
-    /**
-     * 旧接口：客户云端上报（保留兼容）
-     */
-    suspend fun uploadCheckRecord(record: Record, deviceSn: String): Result<CloudCheckRecordResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                Timber.d("=== Cloud Record Upload Start (legacy) ===")
-                Timber.d("Record: personCode=${record.employeeId}, personName=${record.userName}, temp=${record.temperature}, isPassed=${record.isPassed}")
-                Timber.d("Hand paths - palm=${record.handPalmPath}, back=${record.handBackPath}")
-                Timber.d("Device SN: $deviceSn")
-
-                val deviceIp = getDeviceIp() ?: ""
-                Timber.d("Device IP: $deviceIp")
-
-                val facePhoto = getImageBase64(record.faceImagePath)
-                val handPalmPhoto = getImageBase64(record.handPalmPath)
-                val handBackPhoto = getImageBase64(record.handBackPath)
-                Timber.d("Image sizes - face: ${facePhoto.length}, palm: ${handPalmPhoto.length}, back: ${handBackPhoto.length}")
-
-                val temperatureType = if (record.isTempNormal) 0 else 1
-                val handResult = when {
-                    record.isHandNormal -> "true"
-                    record.isHandNormal == false -> "false"
-                    else -> "unknown"
-                }
-                // 晨检结果：体温正常 且 手部正常 才通过
-                val result = if (record.isTempNormal && record.isHandNormal) "true" else "false"
-                Timber.d("temperatureType=$temperatureType, result=$result, handResult=$handResult")
-
-                val handCheckParam = HandCheckParam(
-                    result = handResult,
-                    handPalmPhoto = handPalmPhoto,
-                    handBackPhoto = handBackPhoto
-                )
-
-                val request = CloudCheckRecordRequest(
-                    deviceIp = deviceIp,
-                    deviceSn = deviceSn,
-                    personCode = record.employeeId,
-                    personName = record.userName,
-                    photo = facePhoto,
-                    timestamp = record.checkTime,
-                    verificationMode = 9,
-                    temperature = record.temperature.toString(),
-                    temperatureType = temperatureType,
-                    result = result,
-                    handCheck = handCheckParam,
-                    recognitionType = 1,
-                    livenessType = 1,
-                    maskType = 1,
-                    healthyState = 0,
-                    passType = 1,
-                    serverVerify = "0",
-                    verificationType = 0
-                )
-
-                Timber.d("Sending POST request to: $BASE_URL$ENDPOINT")
-
-                val response = httpClient.post("$BASE_URL$ENDPOINT") {
-                    contentType(ContentType.Application.Json)
-                    setBody(request)
-                }
-
-                Timber.d("Response status: ${response.status}")
-
-                if (response.status.isSuccess()) {
-                    // 打印原始响应
-                    val rawBody: String = response.body()
-                    Timber.d("Raw response body: $rawBody")
-
-                    val responseBody = response.body<CloudCheckRecordResponse>()
-                    Timber.d("Response body: code=${responseBody.code}, isSuccess=${responseBody.isSuccess}, message=${responseBody.message}")
-
-                    if (responseBody.isSuccess) {
-                        Timber.d("=== Cloud Record Upload SUCCESS ===")
-                        Result.success(responseBody)
-                    } else {
-                        Timber.e("=== Cloud Record Upload FAILED: ${responseBody.message} ===")
-                        Result.failure(Exception(responseBody.message))
-                    }
-                } else {
-                    Timber.e("=== Cloud Record Upload HTTP ERROR: ${response.status} ===")
-                    Result.failure(Exception("HTTP ${response.status}"))
-                }
-            } catch (e: java.util.concurrent.CancellationException) {
-                Timber.w("Cloud record upload cancelled (ViewModel destroyed)")
-                Result.failure(e)
-            } catch (e: Exception) {
-                Timber.e(e, "=== Cloud Record Upload EXCEPTION ===")
-                Result.failure(e)
-            }
-        }
-    }
-
     private fun getImageBase64(imagePath: String?): String {
         if (imagePath.isNullOrBlank()) return ""
-        return try {
-            val bitmap = FileUtil.loadBitmapFromInternal(context, imagePath)
-            if (bitmap != null) {
-                val bos = java.io.ByteArrayOutputStream()
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, bos)
-                val bytes = bos.toByteArray()
-                Base64.encodeToString(bytes, Base64.DEFAULT)
-            } else {
-                ""
-            }
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to convert image to base64: $imagePath")
-            ""
-        }
-    }
 
-    private fun getDeviceIp(): String? {
+        val file = FileUtil.getRecordImageFile(context, imagePath) ?: return ""
+        if (!file.exists()) {
+            Timber.w("Image file not found: $imagePath")
+            return ""
+        }
+
         return try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val networkInterface = interfaces.nextElement()
-                val addresses = networkInterface.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val address = addresses.nextElement()
-                    if (!address.isLoopbackAddress && address is InetAddress) {
-                        val ip = address.hostAddress
-                        if (ip.contains(".")) {
-                            return ip
-                        }
-                    }
-                }
+            // 1. 读取图片尺寸
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
             }
-            null
+            BitmapFactory.decodeFile(file.absolutePath, options)
+
+            val srcWidth = options.outWidth
+            val srcHeight = options.outHeight
+            if (srcWidth <= 0 || srcHeight <= 0) {
+                Timber.w("Invalid image dimensions: ${srcWidth}x$srcHeight for $imagePath")
+                return ""
+            }
+
+            // 2. 计算采样率（最大边不超过 1280）
+            val maxDimension = 1280
+            var inSampleSize = 1
+            while ((srcWidth / inSampleSize > maxDimension) || (srcHeight / inSampleSize > maxDimension)) {
+                inSampleSize *= 2
+            }
+
+            // 3. 解码压缩后的 Bitmap
+            val decodeOptions = BitmapFactory.Options().apply {
+                this.inSampleSize = inSampleSize
+                this.inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+                ?: run {
+                    Timber.w("Failed to decode bitmap: $imagePath")
+                    return ""
+                }
+
+            // 4. 如果采样后仍超过最大尺寸，继续按比例缩放
+            val scaledBitmap = if (bitmap.width > maxDimension || bitmap.height > maxDimension) {
+                val scale = maxDimension.toFloat() / maxOf(bitmap.width, bitmap.height)
+                val newWidth = (bitmap.width * scale).toInt()
+                val newHeight = (bitmap.height * scale).toInt()
+                Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true).also {
+                    if (it != bitmap) bitmap.recycle()
+                }
+            } else {
+                bitmap
+            }
+
+            // 5. 压缩为 JPEG 并转 Base64
+            val outputStream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+            val bytes = outputStream.toByteArray()
+            outputStream.close()
+            scaledBitmap.recycle()
+
+            val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            Timber.d("Image compressed: $imagePath -> ${bytes.size / 1024} KB (base64: ${base64.length / 1024} KB)")
+            base64
         } catch (e: Exception) {
-            Timber.w(e, "Failed to get device IP")
-            null
+            Timber.w(e, "Failed to compress image to base64: $imagePath")
+            ""
         }
     }
 }

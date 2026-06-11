@@ -47,6 +47,9 @@ class SettingsRepository @Inject constructor(
     private val _deviceId = MutableStateFlow(prefs.getString(KEY_DEVICE_ID, "") ?: "")
     val deviceId: StateFlow<String> = _deviceId.asStateFlow()
 
+    private val _heartbeatInterval = MutableStateFlow(prefs.getInt(KEY_HEARTBEAT_INTERVAL, 30))
+    val heartbeatInterval: StateFlow<Int> = _heartbeatInterval.asStateFlow()
+
     fun setVoiceEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
         _voiceEnabled.value = enabled
@@ -102,6 +105,12 @@ class SettingsRepository @Inject constructor(
         _deviceId.value = value
     }
 
+    fun setHeartbeatInterval(value: Int) {
+        val clamped = value.coerceIn(10, 300)
+        prefs.edit().putInt(KEY_HEARTBEAT_INTERVAL, clamped).apply()
+        _heartbeatInterval.value = clamped
+    }
+
     fun addDeviceSnHistory(sn: String) {
         if (sn.isBlank()) return
         val current = getDeviceSnHistory().toMutableSet()
@@ -138,5 +147,6 @@ class SettingsRepository @Inject constructor(
         private const val KEY_PLATFORM_URL = "platform_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_HEARTBEAT_INTERVAL = "heartbeat_interval"
     }
 }

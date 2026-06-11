@@ -23,10 +23,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
@@ -54,7 +55,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -90,8 +90,8 @@ fun ReportExportScreen(
     val textMain = Color(0xFF1E293B)
     val textMuted = Color(0xFF64748B)
     val borderColor = Color(0xFFE2E8F0)
-    val infoBg = Color(0xFFE0E7FF)
-    val infoText = Color(0xFF3730A3)
+    val warningBg = Color(0xFFFEF3C7)
+    val warningText = Color(0xFF92400E)
 
     val now = System.currentTimeMillis()
     val todayKey = remember(now) { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now) }
@@ -115,6 +115,7 @@ fun ReportExportScreen(
             .fillMaxSize()
             .background(bgMain)
     ) {
+        // 顶部栏
         Surface(color = Color.White, shadowElevation = 0.dp) {
             Column {
                 Row(
@@ -156,29 +157,31 @@ fun ReportExportScreen(
                 .padding(32.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Surface(color = infoBg, shape = RoundedCornerShape(8.dp)) {
+            // 提示信息 - 黄色背景
+            Surface(color = warningBg, shape = RoundedCornerShape(8.dp)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
-                        tint = infoText,
-                        modifier = Modifier.size(18.dp)
+                        tint = warningText,
+                        modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "提示：导出的报表将保存至设备本地文件夹。如需转发，请前往系统文件管理器进行分享。",
-                        color = infoText,
+                        text = "提示：导出的报表将保存至设备本地文件夹，如需转发，请前往系统文件管理器进行分享",
+                        color = warningText,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
 
+            // 新建导出任务
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -191,7 +194,7 @@ fun ReportExportScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.Description,
+                            imageVector = Icons.Default.CloudDownload,
                             contentDescription = null,
                             tint = primaryBlue,
                             modifier = Modifier.size(20.dp)
@@ -213,9 +216,10 @@ fun ReportExportScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
+                                .height(48.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color(0xFFF8FAFC))
+                                .border(1.dp, borderColor, RoundedCornerShape(10.dp))
                                 .clickable { showDateMenu = true }
                                 .padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterStart
@@ -307,8 +311,8 @@ fun ReportExportScreen(
                                 }
                             },
                             modifier = Modifier
-                                .height(44.dp)
-                                .width(180.dp),
+                                .height(48.dp)
+                                .width(160.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = primaryBlue),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -316,13 +320,13 @@ fun ReportExportScreen(
                                 imageVector = Icons.Default.CloudDownload,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "确认导出",
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -342,6 +346,7 @@ fun ReportExportScreen(
 
             Spacer(modifier = Modifier.height(0.dp))
 
+            // 导出记录表格
             Card(
                 modifier = Modifier
                     .weight(1f)
@@ -359,7 +364,7 @@ fun ReportExportScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Description,
+                            imageVector = Icons.Default.CloudDownload,
                             contentDescription = null,
                             tint = primaryBlue,
                             modifier = Modifier.size(20.dp)
@@ -432,7 +437,7 @@ private fun ExportHeaderRow() {
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF8FAFC))
-            .padding(horizontal = Dimens.PaddingNormal, vertical = 10.dp),
+            .padding(horizontal = Dimens.PaddingNormal, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         HeaderCell(text = "序号", width = 80.dp)
@@ -454,7 +459,7 @@ private fun ExportRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
-            .padding(horizontal = Dimens.PaddingNormal, vertical = 10.dp),
+            .padding(horizontal = Dimens.PaddingNormal, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         BodyCell(text = index.toString(), width = 80.dp)
@@ -536,7 +541,7 @@ private data class ExportResult(
 
 private fun csvEscape(value: String): String {
     val escaped = value.replace("\"", "\"\"")
-    val needsQuote = escaped.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+    val needsQuote = escaped.any { it == ',' || it == '\"' || it == '\n' || it == '\r' }
     return if (needsQuote) "\"$escaped\"" else escaped
 }
 
@@ -555,7 +560,7 @@ private fun buildCsvContent(
     val header = "姓名,工号,体温,手部情况,健康证状态,身体不适,结果,时间,人脸照片,手心照片,手背照片\n"
 
     val builder = StringBuilder()
-    builder.append('\uFEFF')
+    builder.append('﻿')
     builder.append(header)
 
     filtered.forEach { record ->
@@ -634,7 +639,7 @@ private fun buildRangeText(records: List<RecordEntity>, dateFilter: String): Str
     val sorted = filtered.sortedBy { it.checkTime }
     val start = dateFormat.format(sorted.first().checkTime)
     val end = dateFormat.format(sorted.last().checkTime)
-    return "$start - $end"
+    return "$start ~ $end"
 }
 
 private fun handleDownload(

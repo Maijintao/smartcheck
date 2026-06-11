@@ -24,9 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -82,6 +81,7 @@ fun EmployeeListScreen(
     val borderColor = Color(0xFFE2E8F0)
 
     Column(modifier = Modifier.fillMaxSize().background(bgMain)) {
+        // 顶部栏
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = Color.White,
@@ -137,8 +137,8 @@ fun EmployeeListScreen(
                             .height(44.dp)
                     )
                     PillActionButton(
-                        text = "从云端导入",
-                        icon = Icons.Default.Cloud,
+                        text = "批量导入",
+                        icon = Icons.Default.CloudUpload,
                         container = primaryLight,
                         contentColor = primaryBlue,
                         onClick = onNavigateCloudImport
@@ -205,7 +205,7 @@ fun EmployeeListScreen(
 
                 PageNavButton(
                     enabled = uiState.pageIndex < uiState.totalPages - 1,
-                    icon = Icons.Default.KeyboardArrowRight,
+                    icon = Icons.Default.KeyboardArrowLeft,
                     bgMain = bgMain,
                     borderColor = borderColor,
                     textMain = textMain,
@@ -247,8 +247,9 @@ private fun AddEmployeeCard(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // 蓝色圆形+按钮
                 Surface(
-                    color = Color.White,
+                    color = primaryBlue,
                     shape = CircleShape,
                     shadowElevation = 2.dp
                 ) {
@@ -259,7 +260,7 @@ private fun AddEmployeeCard(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "新增员工",
-                            tint = primaryBlue,
+                            tint = Color.White,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -356,20 +357,20 @@ private fun EmployeeCard(
                     }
                 }
 
+                // 剩余天数标签
                 Box(
                     modifier = Modifier
                         .padding(10.dp)
-                        .size(32.dp)
-                        .align(Alignment.TopEnd)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.40f)),
-                    contentAlignment = Alignment.Center
+                        .align(Alignment.BottomCenter)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(status.bg)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                    Text(
+                        text = status.text,
+                        color = status.fg,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -379,47 +380,17 @@ private fun EmployeeCard(
                     .fillMaxWidth()
                     .weight(0.35f)
                     .padding(16.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column {
-                    Text(
-                        text = employee.name,
-                        color = textMain,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    val subtitle = listOf(employee.department, employee.position)
-                        .map { it.trim() }
-                        .firstOrNull { it.isNotBlank() }
-
-                    if (!subtitle.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = subtitle,
-                            color = textMuted,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(status.bg)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = status.text,
-                        color = status.fg,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Text(
+                    text = employee.name,
+                    color = textMain,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -446,7 +417,7 @@ private fun certStatus(daysRemaining: Int): CertStatus {
             bg = dangerBg
         )
         daysRemaining < 7 -> CertStatus(
-            text = "即将过期 $daysRemaining 天",
+            text = "剩余 $daysRemaining 天",
             fg = warning,
             bg = warningBg
         )

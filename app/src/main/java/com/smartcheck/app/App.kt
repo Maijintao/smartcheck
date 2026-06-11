@@ -8,6 +8,7 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraXConfig
 import com.smartcheck.app.api.KtorServerManager
+import com.smartcheck.app.data.upload.DeviceHeartbeatManager
 import com.smartcheck.app.data.upload.NetworkMonitor
 import com.smartcheck.app.data.upload.PendingUploadManager
 import com.smartcheck.app.utils.DeviceAuth
@@ -35,6 +36,9 @@ class App : Application(), CameraXConfig.Provider {
     @Inject
     lateinit var pendingUploadManager: PendingUploadManager
 
+    @Inject
+    lateinit var deviceHeartbeatManager: DeviceHeartbeatManager
+
     override fun onCreate() {
         super.onCreate()
 
@@ -44,7 +48,7 @@ class App : Application(), CameraXConfig.Provider {
         }
         // 同时记录到文件（带日志轮转和自动清理）
         Timber.plant(FileLoggingTree(this))
-        
+
         Timber.d("[App] Application onCreate 开始")
 
         // 初始化设备授权（MAC 白名单验证）
@@ -64,6 +68,9 @@ class App : Application(), CameraXConfig.Provider {
 
         // 应用启动时检查并上传积压的离线记录
         startPendingUploadQueue()
+
+        // 启动设备心跳管理器（平台保活）
+        startDeviceHeartbeat()
     }
 
     private fun startKtorServer() {
@@ -191,6 +198,27 @@ class App : Application(), CameraXConfig.Provider {
         }
     }
     
+    private fun startDeviceHeartbeat() {
+        try {
+            android.os.Handler(mainLooper).postDelayed({
+                if (::deviceHeartbeatManager.isInitialized) {
+                    deviceHeartbeatManager.start()
+                    Timber.i("DeviceHeartbeatManager started")
+                } else {
+                    Timber.w("DeviceHeartbeatManager not initialized yet, will retry...")
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (::deviceHeartbeatManager.isInitialized) {
+                            deviceHeartbeatManager.start()
+                            Timber.i("DeviceHeartbeatManager started on retry")
+                        }
+                    }, 3000)
+                }
+            }, 5000)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start DeviceHeartbeatManager")
+        }
+    }
+
     private fun initHandDetector() {
         try {
             val hardware = Build.HARDWARE.lowercase()

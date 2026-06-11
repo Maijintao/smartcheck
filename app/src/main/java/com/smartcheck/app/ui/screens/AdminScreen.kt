@@ -23,9 +23,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.ui.components.RecordDetailDialog
@@ -91,6 +92,7 @@ fun AdminScreen(
     val statusOptions = listOf("全部", "通过", "不合格")
 
     val primaryBlue = Color(0xFF2563EB)
+    val primaryLight = Color(0xFFEFF6FF)
     val bgMain = Color(0xFFF1F5F9)
     val textMain = Color(0xFF1E293B)
     val textMuted = Color(0xFF64748B)
@@ -101,117 +103,136 @@ fun AdminScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(bgMain)
-            .padding(Dimens.PaddingLarge)
     ) {
-        Row(
+        // 顶部栏
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            color = Color.White,
+            shadowElevation = 2.dp
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+            Column {
+                Row(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White)
-                        .clickable(onClick = onNavigateBack),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowLeft,
-                        contentDescription = "返回",
-                        tint = textMain
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "晨检记录",
-                    color = textMain,
-                    fontSize = Dimens.TextSizeTitle,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(bgMain)
+                                .clickable(onClick = onNavigateBack),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowLeft,
+                                contentDescription = "返回",
+                                tint = textMain
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = "晨检记录",
+                            color = textMain,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
-            if (onNavigateExport != null) {
-                Button(
-                    onClick = onNavigateExport,
-                    colors = ButtonDefaults.buttonColors(containerColor = success),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(text = "导出记录报表", color = Color.White, fontSize = Dimens.TextSizeNormal)
+                    if (onNavigateExport != null) {
+                        Button(
+                            onClick = onNavigateExport,
+                            colors = ButtonDefaults.buttonColors(containerColor = success),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(text = "导出记录报表", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
                 }
+                Divider(color = borderColor)
             }
         }
-
-        Divider(color = borderColor)
-
-        Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
 
         // 筛选栏
-        Column {
-            // 日期和状态筛选按钮
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 日期筛选
-                Text("日期:", fontSize = Dimens.TextSizeNormal)
-                timeFilterOptions.forEach { (label, filter) ->
-                    val isSelected = selectedTimeFilter == filter
-                    Text(
-                        text = label,
-                        color = if (isSelected) primaryBlue else textMuted,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier
-                            .clickable { selectedTimeFilter = filter }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 日期筛选
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("日期：", fontSize = 15.sp, color = textMain, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    timeFilterOptions.forEach { (label, filter) ->
+                        val isSelected = selectedTimeFilter == filter
+                        FilterChip(
+                            text = label,
+                            isSelected = isSelected,
+                            primaryBlue = primaryBlue,
+                            textMuted = textMuted,
+                            onClick = { selectedTimeFilter = filter }
+                        )
+                    }
                 }
-                
-                Spacer(modifier = Modifier.width(Dimens.PaddingNormal))
-                
-                // 状态筛选
-                Text("状态:", fontSize = Dimens.TextSizeNormal)
-                statusOptions.forEach { option ->
-                    val isSelected = (option == "全部" && statusFilter.isEmpty()) || statusFilter == option
-                    Text(
-                        text = option,
-                        color = if (isSelected) primaryBlue else textMuted,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier
-                            .clickable { 
-                                statusFilter = if (option == "全部") "" else option 
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // 状态筛选
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("状态：", fontSize = 15.sp, color = textMain, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    statusOptions.forEach { option ->
+                        val isSelected = (option == "全部" && statusFilter.isEmpty()) || statusFilter == option
+                        FilterChip(
+                            text = option,
+                            isSelected = isSelected,
+                            primaryBlue = primaryBlue,
+                            textMuted = textMuted,
+                            onClick = {
+                                statusFilter = if (option == "全部") "" else option
                             }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                        )
+                    }
                 }
             }
-            
-            Spacer(modifier = Modifier.height(Dimens.PaddingSmall))
-            
-            // 人员搜索
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilterField(
-                    label = "人员",
-                    value = query,
-                    onValueChange = viewModel::setQuery,
-                    trailingIcon = Icons.Default.Search,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // 搜索框
+            OutlinedTextField(
+                value = query,
+                onValueChange = viewModel::setQuery,
+                modifier = Modifier
+                    .width(240.dp)
+                    .height(44.dp),
+                singleLine = true,
+                placeholder = { Text("搜索姓名/工号", fontSize = 14.sp, color = textMuted) },
+                trailingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = textMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+            )
         }
 
-        Spacer(modifier = Modifier.height(Dimens.PaddingNormal))
-
+        // 表格区域
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .padding(horizontal = 32.dp)
         ) {
             TableHeader()
             if (records.isEmpty()) {
@@ -245,7 +266,7 @@ fun AdminScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(0.dp))
+        Spacer(modifier = Modifier.height(16.dp))
     }
 
     selectedRecord?.let { record ->
@@ -257,33 +278,25 @@ fun AdminScreen(
 }
 
 @Composable
-private fun FilterField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier = Modifier
+private fun FilterChip(
+    text: String,
+    isSelected: Boolean,
+    primaryBlue: Color,
+    textMuted: Color,
+    onClick: () -> Unit
 ) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isSelected) primaryBlue else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Text(
-            text = label,
-            fontSize = Dimens.TextSizeNormal,
-            color = Color(0xFF111827),
-            modifier = Modifier.width(72.dp)
-        )
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .height(Dimens.InputHeight)
-                .fillMaxWidth(),
-            singleLine = true,
-            trailingIcon = {
-                Icon(trailingIcon, contentDescription = null)
-            }
+            text = text,
+            fontSize = 14.sp,
+            color = if (isSelected) Color.White else textMuted,
+            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
         )
     }
 }
@@ -293,8 +306,8 @@ private fun TableHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
-            .padding(vertical = 10.dp, horizontal = Dimens.PaddingNormal),
+            .background(Color(0xFFF8FAFC))
+            .padding(vertical = 12.dp, horizontal = Dimens.PaddingNormal),
         verticalAlignment = Alignment.CenterVertically
     ) {
         HeaderCell(text = "日期", width = 180.dp)
@@ -327,7 +340,6 @@ private fun RecordTableRow(
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val tempHigh = record.temperature >= 37.3f
     val handIssue = record.handStatus.contains("异常") || !record.isHandNormal
-    val hasSymptom = record.symptomFlags.isNotBlank() && record.symptomFlags != "无"
     val warningRow = tempHigh || handIssue
     val background = if (warningRow) Color(0xFFFFF1F1) else Color.White
     val textColor = if (warningRow) MaterialTheme.colorScheme.error else Color(0xFF111827)
@@ -337,7 +349,7 @@ private fun RecordTableRow(
             .fillMaxWidth()
             .background(background)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = Dimens.PaddingNormal),
+            .padding(vertical = 12.dp, horizontal = Dimens.PaddingNormal),
         verticalAlignment = Alignment.CenterVertically
     ) {
         BodyCell(text = dateFormat.format(Date(record.checkTime)), width = 180.dp, color = textColor)
@@ -347,7 +359,7 @@ private fun RecordTableRow(
         BodyCell(text = record.symptomFlags.ifBlank { "无" }, width = 180.dp, color = textColor)
         Row(
             modifier = Modifier.width(140.dp),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

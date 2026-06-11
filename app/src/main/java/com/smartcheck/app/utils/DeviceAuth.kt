@@ -121,7 +121,10 @@ object DeviceAuth {
     /**
      * 执行设备授权校验（在线 MAC 白名单验证）。
      *
-     * 如果命中 [isLegacyActivationExempt]，直接返回成功。
+     * 放行规则：
+     * 1. 命中 [isLegacyActivationExempt]，直接返回成功（历史遗留激活）
+     * 2. 有网络时，向平台查询白名单，通过则保存激活状态
+     * 3. 无网络时，若之前已激活过（本地有激活记录），则放行；否则失败
      *
      * @return Result.success(true) 表示授权通过；Result.failure(Exception) 包含失败原因
      */
@@ -151,52 +154,71 @@ object DeviceAuth {
         Log.d(TAG, "服务器地址: $serverUrl")
         Log.d(TAG, "当前设备 MAC: $mac")
 
-        try {
-            val fullUrl = "$serverUrl$activatePath"
-            Log.d(TAG, "完整URL: $fullUrl")
+        // 先尝试在线查询白名单
+        val hasNetwork = isNetworkAvailable()
+        if (hasNetwork) {
+            Log.d(TAG, "网络可用，向平台查询白名单")
+            try {
+                val fullUrl = "$serverUrl$activatePath"
+                Log.d(TAG, "完整URL: $fullUrl")
 
-            val jsonBody = """{"deviceMac":"$mac"}"""
+                val jsonBody = """{"deviceMac":"$mac"}"""
 
-            val url = URL(fullUrl)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.doOutput = true
-            connection.connectTimeout = connectTimeoutMs
-            connection.readTimeout = readTimeoutMs
+                val url = URL(fullUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connection.doOutput = true
+                connection.connectTimeout = connectTimeoutMs
+                connection.readTimeout = readTimeoutMs
 
-            connection.outputStream.use { output ->
-                output.write(jsonBody.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            Log.d(TAG, "响应码: $responseCode")
-
-            if (responseCode == 200) {
-                val response = connection.inputStream.bufferedReader().readText()
-                Log.d(TAG, "响应: $response")
-
-                val body = JSONObject(response)
-                val code = body.optInt("code", -1)
-                val dataObj = body.optJSONObject("data")
-                val activated = dataObj?.optBoolean("activated", false) ?: false
-
-                if (code == 0 || activated) {
-                    saveVerification(mac)
-                    Log.i(TAG, "设备授权通过 MAC=$mac")
-                    return@withContext Result.success(true)
+                connection.outputStream.use { output ->
+                    output.write(jsonBody.toByteArray(Charsets.UTF_8))
                 }
 
-                val errorMsg = body.optString("message", "设备未授权")
-                Log.w(TAG, "授权校验失败: $errorMsg")
-                return@withContext Result.failure(Exception(errorMsg))
-            }
+                val responseCode = connection.responseCode
+                Log.d(TAG, "响应码: $responseCode")
 
-            Log.w(TAG, "授权校验失败: HTTP $responseCode")
-            Result.failure(Exception("设备授权校验失败: HTTP $responseCode"))
-        } catch (e: Exception) {
-            Log.e(TAG, "授权校验异常", e)
-            Result.failure(Exception("网络错误: ${e.message}"))
+                if (responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().readText()
+                    Log.d(TAG, "响应: $response")
+
+                    val body = JSONObject(response)
+                    val code = body.optInt("code", -1)
+                    val dataObj = body.optJSONObject("data")
+                    val activated = dataObj?.optBoolean("activated", false) ?: false
+
+                    if (code == 0 || activated) {
+                        saveVerification(mac)
+                        Log.i(TAG, "设备授权通过 MAC=$mac")
+                        return@withContext Result.success(true)
+                    }
+
+                    val errorMsg = body.optString("message", "设备未授权")
+                    Log.w(TAG, "授权校验失败: $errorMsg")
+                    return@withContext Result.failure(Exception(errorMsg))
+                }
+
+                Log.w(TAG, "授权校验失败: HTTP $responseCode")
+                return@withContext Result.failure(Exception("设备授权校验失败: HTTP $responseCode"))
+            } catch (e: Exception) {
+                Log.e(TAG, "在线授权校验异常", e)
+                // 网络请求异常，降级到本地已激活检查
+                if (isActivated()) {
+                    Log.i(TAG, "网络请求异常，但本地已有激活记录，放行")
+                    return@withContext Result.success(true)
+                }
+                return@withContext Result.failure(Exception("网络错误: ${e.message}"))
+            }
+        } else {
+            // 无网络
+            Log.d(TAG, "网络不可用，检查本地激活记录")
+            if (isActivated()) {
+                Log.i(TAG, "无网络但本地已有激活记录，放行")
+                return@withContext Result.success(true)
+            }
+            Log.w(TAG, "无网络且本地未激活，拒绝访问")
+            return@withContext Result.failure(Exception("无网络连接且设备未激活"))
         }
     }
 
@@ -282,5 +304,19 @@ object DeviceAuth {
 
     private fun normalizeMac(mac: String): String {
         return mac.trim().uppercase(Locale.US).replace('-', ':')
+    }
+
+    /** 检查当前是否有可用网络 */
+    private fun isNetworkAvailable(): Boolean {
+        return try {
+            val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                    as android.net.ConnectivityManager
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            Log.w(TAG, "网络状态检查异常", e)
+            false
+        }
     }
 }

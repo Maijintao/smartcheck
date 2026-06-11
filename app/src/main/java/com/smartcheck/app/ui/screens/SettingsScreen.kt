@@ -100,6 +100,7 @@ fun SettingsScreen(
     val deviceId by viewModel.deviceId.collectAsState()
     val platformUrl by viewModel.platformUrl.collectAsState()
     val apiKey by viewModel.apiKey.collectAsState()
+    val heartbeatInterval by viewModel.heartbeatInterval.collectAsState()
     val context = LocalContext.current
 
     val currentAccount by authViewModel.account.collectAsState()
@@ -146,6 +147,10 @@ fun SettingsScreen(
     var versionHistory by remember { mutableStateOf<List<UpdateInfo>>(emptyList()) }
     var historyLoading by remember { mutableStateOf(false) }
 
+    // 平台连接测试状态
+    var connectionTestLoading by remember { mutableStateOf(false) }
+    var connectionTestSuccess by remember { mutableStateOf(false) }
+    var connectionTestMessage by remember { mutableStateOf("点击测试连接") }
 
     fun openEdit(label: String, value: String, onConfirm: (String) -> Unit) {
         dialogLabel = label
@@ -528,6 +533,63 @@ fun SettingsScreen(
                                 danger = danger,
                                 dangerLight = dangerLight,
                                 onClick = { openEdit("API Key", apiKey) { viewModel.setApiKey(it) } }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "心跳间隔",
+                        subtitle = "${heartbeatInterval}秒（范围 10-300）",
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = {
+                                    openEdit(
+                                        label = "心跳间隔（秒）",
+                                        value = heartbeatInterval.toString()
+                                    ) { raw ->
+                                        val parsed = raw.toIntOrNull() ?: 30
+                                        viewModel.setHeartbeatInterval(parsed)
+                                    }
+                                }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "平台连接测试",
+                        subtitle = connectionTestMessage,
+                        trailing = {
+                            PillButton(
+                                text = if (connectionTestLoading) "测试中" else "测试连接",
+                                kind = if (connectionTestSuccess) PillButtonKind.Primary else PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                enabled = !connectionTestLoading,
+                                onClick = {
+                                    connectionTestLoading = true
+                                    connectionTestMessage = "正在测试连接..."
+                                    connectionTestSuccess = false
+                                    updateScope.launch {
+                                        val result = viewModel.testPlatformConnection()
+                                        connectionTestLoading = false
+                                        connectionTestSuccess = result.success
+                                        connectionTestMessage = result.message
+                                    }
+                                }
                             )
                         },
                         textMain = textMain,
