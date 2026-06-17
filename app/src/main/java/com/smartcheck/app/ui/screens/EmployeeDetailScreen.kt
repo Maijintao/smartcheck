@@ -60,6 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.ui.components.CameraCaptureDialog
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.viewmodel.EmployeeDetailViewModel
+import com.smartcheck.app.utils.UsbCameraHelper
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.collectLatest
@@ -73,6 +74,20 @@ fun EmployeeDetailScreen(
     val user by viewModel.user.collectAsState()
     val faceBitmap by viewModel.faceBitmap.collectAsState()
     val certBitmap by viewModel.certBitmap.collectAsState()
+
+    val faceCameraId = remember {
+        val parsed = UsbCameraHelper.parseVidPid("0BDA:271A")
+        if (parsed != null) {
+            UsbCameraHelper.findCameraIdByVidPid(context, parsed.first, parsed.second)
+        } else null
+    } ?: "109"
+
+    val handCameraId = remember {
+        val parsed = UsbCameraHelper.parseVidPid("0BDA:D567")
+        if (parsed != null) {
+            UsbCameraHelper.findCameraIdByVidPid(context, parsed.first, parsed.second)
+        } else null
+    } ?: "111"
 
     var name by remember { mutableStateOf("") }
     var employeeId by remember { mutableStateOf("") }
@@ -467,7 +482,8 @@ fun EmployeeDetailScreen(
 
     if (showFaceCamera) {
         CameraCaptureDialog(
-            cameraId = "100",
+            cameraId = faceCameraId,
+            isFaceCamera = true,
             onCapture = {
                 viewModel.updateFaceBitmap(it)
                 showFaceCamera = false
@@ -478,7 +494,8 @@ fun EmployeeDetailScreen(
 
     if (showCertCamera) {
         CameraCaptureDialog(
-            cameraId = "102",
+            cameraId = handCameraId,
+            isFaceCamera = false,
             onCapture = {
                 viewModel.updateCertBitmap(it)
                 showCertCamera = false

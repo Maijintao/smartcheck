@@ -48,6 +48,7 @@ import com.smartcheck.app.ui.theme.Dimens
 @Composable
 fun CameraCaptureDialog(
     cameraId: String,
+    isFaceCamera: Boolean = false,
     onCapture: (Bitmap) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -104,7 +105,7 @@ fun CameraCaptureDialog(
                                 }
                             )
 
-                            CaptureGuideOverlay(cameraId = cameraId)
+                            CaptureGuideOverlay(isFaceCamera = isFaceCamera)
                         }
 
                         Box(
@@ -139,13 +140,13 @@ fun CameraCaptureDialog(
 }
 
 @Composable
-private fun CaptureGuideOverlay(cameraId: String) {
+private fun CaptureGuideOverlay(isFaceCamera: Boolean) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val strokeWidth = 3.dp.toPx()
         val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
         val guideColor = BrandGreen.copy(alpha = 0.8f)
 
-        val rect = if (cameraId == "100") {
+        val rect = if (isFaceCamera) {
             val guideSize = size.minDimension * 0.6f
             val left = (size.width - guideSize) / 2f
             val top = (size.height - guideSize) / 2f

@@ -11,6 +11,7 @@ import com.smartcheck.app.api.KtorServerManager
 import com.smartcheck.app.data.upload.NetworkMonitor
 import com.smartcheck.app.data.upload.PendingUploadManager
 import com.smartcheck.app.utils.DeviceAuth
+import com.smartcheck.app.utils.UsbCameraHelper
 import com.smartcheck.sdk.HandDetector
 import dagger.hilt.android.HiltAndroidApp
 import com.smartcheck.app.utils.FileLoggingTree
@@ -216,7 +217,32 @@ class App : Application(), CameraXConfig.Provider {
     override fun getCameraXConfig(): CameraXConfig {
         val defaultConfig = Camera2Config.defaultConfig()
         val builder = CameraXConfig.Builder.fromConfig(defaultConfig)
-        val preferredIds = setOf("100", "102")
+
+        // 硬编码 PID/VID 绑定摄像头
+        val preferredIds = mutableSetOf<String>()
+
+        val faceParsed = UsbCameraHelper.parseVidPid("0BDA:271A")
+        if (faceParsed != null) {
+            val found = UsbCameraHelper.findCameraIdByVidPid(this, faceParsed.first, faceParsed.second)
+            if (found != null) {
+                preferredIds.add(found)
+                Timber.i("Face camera bound by VID/PID: 0BDA:271A -> $found")
+            }
+        }
+        val handParsed = UsbCameraHelper.parseVidPid("0BDA:D567")
+        if (handParsed != null) {
+            val found = UsbCameraHelper.findCameraIdByVidPid(this, handParsed.first, handParsed.second)
+            if (found != null) {
+                preferredIds.add(found)
+                Timber.i("Hand camera bound by VID/PID: 0BDA:D567 -> $found")
+            }
+        }
+
+        // 若 PID/VID 查找失败，回退到默认 camera ID
+        if (preferredIds.isEmpty()) {
+            preferredIds.addAll(setOf("109", "111"))
+            Timber.w("PID/VID lookup failed, falling back to default camera IDs")
+        }
 
         builder.setAvailableCamerasLimiter(
             CameraSelector.Builder()

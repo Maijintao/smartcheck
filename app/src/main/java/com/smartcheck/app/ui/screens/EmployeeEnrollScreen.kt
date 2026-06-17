@@ -27,6 +27,7 @@ import com.smartcheck.app.ui.components.CameraType
 import com.smartcheck.app.ui.components.DualCameraPreview
 import com.smartcheck.app.ui.components.CameraPreview
 import com.smartcheck.app.viewmodel.EmployeeEnrollViewModel
+import com.smartcheck.app.utils.UsbCameraHelper
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
@@ -48,6 +49,13 @@ fun EmployeeEnrollScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+
+    val enrollCameraId = remember {
+        val parsed = UsbCameraHelper.parseVidPid("0BDA:D567")
+        if (parsed != null) {
+            UsbCameraHelper.findCameraIdByVidPid(context, parsed.first, parsed.second)
+        } else null
+    } ?: "111"
 
     val lastFrameRef = remember { AtomicReference<Bitmap?>(null) }
     val lastHandFrameRef = remember { AtomicReference<Bitmap?>(null) }
@@ -154,7 +162,7 @@ fun EmployeeEnrollScreen(
                     DualCameraPreview(
                         modifier = Modifier.fillMaxSize(),
                         cameraType = CameraType.HAND,
-                        preferredCameraId = "102",
+                        preferredCameraId = enrollCameraId,
                         onFrameAnalyzed = { bitmap ->
                             lastHandFrameRef.set(bitmap)
                         }
