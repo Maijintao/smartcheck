@@ -684,9 +684,11 @@ class MainViewModel @Inject constructor(
 
     fun finalizeCheckRecord() {
         val state = _uiState.value
+        Timber.d("[finalizeCheck] state=${state.state}, userId=${state.currentUserId}, isSubmitting=${state.isSubmitting}, isRecordFinalized=${state.isRecordFinalized}")
         if (state.isSubmitting || state.isRecordFinalized) return
         if (state.currentUserId == null) return
         if (state.state == CheckState.IDLE) return
+        Timber.d("[finalizeCheck] 条件通过，开始保存记录")
 
         // 允许在任何状态下提交（只要有手心手背照片）
         // 根据检查结果决定是否通过
@@ -734,17 +736,17 @@ class MainViewModel @Inject constructor(
                 )
 
                 result.onSuccess { savedRecord ->
-                    Timber.tag("MainViewModel").d("Record saved: $savedRecord")
+                    Timber.d("[finalizeCheck] ✅ 记录保存成功: id=${savedRecord.id}, user=${savedRecord.userName}, passed=${savedRecord.isPassed}")
                     runCatching {
                         recordUploadReporter.upload(savedRecord.toEntity())
                     }.onFailure { e ->
-                        Timber.tag("MainViewModel").e(e, "Failed to upload record")
+                        Timber.e(e, "[finalizeCheck] 上传失败")
                     }
 
                     // 入队等待上传（支持离线队列）
                     pendingUploadManager.enqueue(savedRecord.id)
                 }.onFailure { e ->
-                    Timber.tag("MainViewModel").e(e, "Failed to save record")
+                    Timber.e(e, "[finalizeCheck] ❌ 记录保存失败")
                 }
 
                 _uiState.update { it.copy(isRecordFinalized = true) }

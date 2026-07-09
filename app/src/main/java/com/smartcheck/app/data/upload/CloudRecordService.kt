@@ -25,7 +25,7 @@ class CloudRecordService @Inject constructor(
     private val httpClient: HttpClient
 ) {
     companion object {
-        private const val BASE_URL = "http://api.qhk12.iyouxin.cn:50082"
+        private const val BASE_URL = "http://api.kitchen.iyouxin.cn"
         private const val ENDPOINT = "/kitchen/morningCheck/saveData"
     }
 

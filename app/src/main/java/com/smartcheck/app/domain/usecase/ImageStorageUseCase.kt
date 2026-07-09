@@ -25,6 +25,10 @@ class ImageStorageUseCase @Inject constructor(
         return saveImage(bitmap, "back_${System.currentTimeMillis()}.jpg")
     }
 
+    fun saveHealthCertImage(bitmap: Bitmap): Result<String> {
+        return saveImage(bitmap, "hc_${System.currentTimeMillis()}.jpg")
+    }
+
     private fun saveImage(bitmap: Bitmap, filename: String): Result<String> {
         val available = appContext.filesDir.usableSpace
         if (available < minFreeBytes) {

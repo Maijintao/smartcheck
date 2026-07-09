@@ -137,24 +137,20 @@ class CloudImportViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
             try {
-                val baseUrl = "http://api.qhk12.iyouxin.cn:50082"
+                val baseUrl = "http://api.kitchen.iyouxin.cn"
                 val endpoint = "/wosapi/YGCJRobotOpenApi/PageStaff"
 
                 Timber.d("Fetching employees from: $baseUrl$endpoint, deviceSn=${_uiState.value.deviceSn}")
 
-                // 创建请求体
-                val requestBody = com.smartcheck.app.api.model.PageStaffRequest(
-                    pageIndex = _uiState.value.pageIndex,
-                    pageSize = getPageSizeInt(),
-                    ygSn = _uiState.value.deviceSn
-                )
-                val jsonBody = kotlinx.serialization.json.Json.encodeToString(com.smartcheck.app.api.model.PageStaffRequest.serializer(), requestBody)
+                // 创建请求体（yg_sn 只通过 header 传递，不在 body 中）
+                // 手动构建 JSON 以避免 encodeDefaults=true 导致多余字段被序列化
+                val jsonBody = """{"pageIndex":${_uiState.value.pageIndex},"pageSize":${getPageSizeInt()}}"""
                 Timber.d("Request JSON: $jsonBody")
 
                 val response = httpClient.post("$baseUrl$endpoint") {
                     header("yg_sn", _uiState.value.deviceSn)
                     contentType(ContentType.Application.Json)
-                    setBody(requestBody)
+                    setBody(io.ktor.http.content.TextContent(jsonBody, ContentType.Application.Json))
                 }
 
                 if (response.status.isSuccess()) {
@@ -175,6 +171,7 @@ class CloudImportViewModel @Inject constructor(
                     
                     if (result.isSuccess) {
                         val employees = result.dataList.map { item ->
+                            Timber.d("[CloudImport] 员工: ${item.personName}, facePicUrl='${item.faceToFacePicUrl}', hcPicUrl='${item.hcPicUrl}'")
                             CloudEmployeeItem(
                                 employeeId = item.thirdKey,
                                 name = item.personName,
@@ -247,23 +244,33 @@ class CloudImportViewModel @Inject constructor(
 
                 try {
                     val existingUser = userRepository.getUserByEmployeeId(cloudEmp.employeeId).getOrNull()
+                    Timber.d("[CloudImport] 导入 ${cloudEmp.name}(${cloudEmp.employeeId}), facePicUrl='${cloudEmp.facePicUrl}', 已存在=${existingUser != null}")
 
                     val healthCertStartDate = parseDate(cloudEmp.healthCertStartDate)
                     val healthCertEndDate = parseDate(cloudEmp.healthCertEndDate)
 
                     var faceImageBase64: String? = null
                     if (cloudEmp.facePicUrl.isNotBlank()) {
+                        Timber.d("[CloudImport] 下载人脸图片: ${cloudEmp.facePicUrl}")
                         faceImageBase64 = downloadImageAsBase64(cloudEmp.facePicUrl)
+                        Timber.d("[CloudImport] 人脸图片下载结果: ${if (faceImageBase64 != null) "${faceImageBase64.length} chars" else "FAILED"}")
+                    } else {
+                        Timber.w("[CloudImport] ${cloudEmp.name} 无人脸图片URL，跳过人脸特征提取")
                     }
 
                     var healthCertImageBase64: String? = null
                     if (cloudEmp.healthCertPicUrl.isNotBlank()) {
+                        Timber.d("[CloudImport] 下载健康证图片: ${cloudEmp.healthCertPicUrl}")
                         healthCertImageBase64 = downloadImageAsBase64(cloudEmp.healthCertPicUrl)
+                        Timber.d("[CloudImport] 健康证图片下载结果: ${if (healthCertImageBase64 != null) "${healthCertImageBase64.length} chars" else "FAILED"}")
+                    } else {
+                        Timber.w("[CloudImport] ${cloudEmp.name} 无健康证图片URL")
                     }
 
                     if (existingUser != null) {
                         var faceImagePath = existingUser.faceImagePath
                         var faceEmbedding = existingUser.faceEmbedding
+                        var healthCertImagePath = existingUser.healthCertImagePath
 
                         // 如果有新的人脸图片，下载并提取特征
                         if (faceImageBase64 != null) {
@@ -271,6 +278,14 @@ class CloudImportViewModel @Inject constructor(
                             saveResult.onSuccess { (path, embedding) ->
                                 faceImagePath = path
                                 faceEmbedding = embedding
+                            }
+                        }
+
+                        // 如果有健康证图片，下载并保存
+                        if (healthCertImageBase64 != null) {
+                            val saveResult = saveHealthCertImageFromBase64(healthCertImageBase64, existingUser.employeeId)
+                            saveResult.onSuccess { path ->
+                                healthCertImagePath = path
                             }
                         }
 
@@ -282,7 +297,8 @@ class CloudImportViewModel @Inject constructor(
                             healthCertStartDate = healthCertStartDate,
                             healthCertEndDate = healthCertEndDate,
                             faceImagePath = faceImagePath,
-                            faceEmbedding = faceEmbedding
+                            faceEmbedding = faceEmbedding,
+                            healthCertImagePath = healthCertImagePath
                         )
                         userRepository.updateUser(updatedUser)
                     } else {
@@ -311,11 +327,21 @@ class CloudImportViewModel @Inject constructor(
                             }
                         }
 
-                        if (userId != null && finalFaceImagePath.isNotEmpty()) {
+                        // 如果有健康证图片，下载并保存
+                        var finalHealthCertImagePath = ""
+                        if (userId != null && healthCertImageBase64 != null) {
+                            val saveResult = saveHealthCertImageFromBase64(healthCertImageBase64, cloudEmp.employeeId)
+                            saveResult.onSuccess { path ->
+                                finalHealthCertImagePath = path
+                            }
+                        }
+
+                        if (userId != null) {
                             val updatedUser = newUser.copy(
                                 id = userId,
                                 faceImagePath = finalFaceImagePath,
-                                faceEmbedding = finalFaceEmbedding
+                                faceEmbedding = finalFaceEmbedding,
+                                healthCertImagePath = finalHealthCertImagePath
                             )
                             userRepository.updateUser(updatedUser)
                         }
@@ -330,6 +356,18 @@ class CloudImportViewModel @Inject constructor(
             // 刷新人脸特征缓存
             Timber.d("[CloudImport] Refreshing face cache after import")
             faceEngine.refreshUserCache()
+
+            // 验证导入后的用户特征状态
+            for (cloudEmp in selectedEmployees) {
+                val user = userRepository.getUserByEmployeeId(cloudEmp.employeeId).getOrNull()
+                if (user != null) {
+                    val embSize = user.faceEmbedding?.size ?: 0
+                    val embPreview = if (embSize > 0) user.faceEmbedding!!.take(5).joinToString() else "EMPTY"
+                    Timber.d("[CloudImport] 验证: ${user.name}(${user.employeeId}) -> embedding size=$embSize, preview=[$embPreview], faceImagePath='${user.faceImagePath}', healthCertImagePath='${user.healthCertImagePath}'")
+                } else {
+                    Timber.w("[CloudImport] 验证失败: ${cloudEmp.employeeId} 导入后未找到用户")
+                }
+            }
 
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
@@ -378,7 +416,7 @@ class CloudImportViewModel @Inject constructor(
         try {
             if (url.isBlank()) return@withContext null
             
-            val fullUrl = if (url.startsWith("http")) url else "http://api.qhk12.iyouxin.cn:50082$url"
+            val fullUrl = if (url.startsWith("http")) url else "http://api.kitchen.iyouxin.cn$url"
             Timber.d("Downloading image from: $fullUrl")
             
             val response = httpClient.get(fullUrl) {
@@ -400,23 +438,25 @@ class CloudImportViewModel @Inject constructor(
     private suspend fun saveFaceImageFromBase64(base64: String, employeeId: String): Result<Pair<String, ByteArray>> = withContext(Dispatchers.IO) {
         try {
             val bytes = Base64.decode(base64, Base64.DEFAULT)
+            Timber.d("[CloudImport] 下载图片字节大小: ${bytes.size} bytes, employeeId=$employeeId")
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: return@withContext Result.failure(Exception("Failed to decode image"))
-            
+                ?: return@withContext Result.failure(Exception("Failed to decode image, bytes size=${bytes.size}"))
+
             Timber.d("[CloudImport] Decoded image for $employeeId: ${bitmap.width}x${bitmap.height}")
-            
+
             // 保存图片
             val imageSaveResult = imageStorageUseCase.saveFaceImage(bitmap)
             if (imageSaveResult.isFailure) {
                 return@withContext Result.failure(imageSaveResult.exceptionOrNull() ?: Exception("Failed to save image"))
             }
             val faceImagePath = imageSaveResult.getOrNull() ?: ""
-            
+
             // 提取人脸特征
-            Timber.d("[CloudImport] Extracting face embedding for $employeeId...")
+            Timber.d("[CloudImport] Extracting face embedding for $employeeId, bitmap=${bitmap.width}x${bitmap.height}, config=${bitmap.config}")
             val faceEmbedding = FaceSdk.extractFeature(bitmap)
-            
-            if (faceEmbedding != null) {
+            Timber.d("[CloudImport] FaceSdk.extractFeature result for $employeeId: ${if (faceEmbedding != null) "non-null, size=${faceEmbedding.size}" else "NULL"}")
+
+            if (faceEmbedding != null && faceEmbedding.isNotEmpty()) {
                 Timber.d("[CloudImport] Face embedding extracted successfully for $employeeId, size=${faceEmbedding.size}")
                 // FloatArray 转 ByteArray
                 val embeddingBytes = floatArrayToByteArray(faceEmbedding)
@@ -428,6 +468,27 @@ class CloudImportViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.e(e, "[CloudImport] Failed to save face image for employee: $employeeId")
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun saveHealthCertImageFromBase64(base64: String, employeeId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: return@withContext Result.failure(Exception("Failed to decode health cert image"))
+
+            Timber.d("[CloudImport] Decoded health cert image for $employeeId: ${bitmap.width}x${bitmap.height}")
+
+            val imageSaveResult = imageStorageUseCase.saveHealthCertImage(bitmap)
+            if (imageSaveResult.isFailure) {
+                return@withContext Result.failure(imageSaveResult.exceptionOrNull() ?: Exception("Failed to save health cert image"))
+            }
+            val healthCertImagePath = imageSaveResult.getOrNull() ?: ""
+            Timber.d("[CloudImport] Health cert image saved for $employeeId: $healthCertImagePath")
+            Result.success(healthCertImagePath)
+        } catch (e: Exception) {
+            Timber.e(e, "[CloudImport] Failed to save health cert image for employee: $employeeId")
             Result.failure(e)
         }
     }
