@@ -145,7 +145,15 @@ fun HomeScreen(
         }
 
         when (uiState.state) {
+            CheckState.HAND_PALM_CHECKING -> {
+                // 重新检测手心时，清除旧照片
+                handFrontShot.safeRecycle()
+                handFrontShot = null
+            }
             CheckState.HAND_BACK_CHECKING -> {
+                // 重新检测手背时，清除旧手背照片
+                handBackShot.safeRecycle()
+                handBackShot = null
                 if (handFrontShot == null) {
                     handFrontShot = lastFrameBitmap?.let { createPreviewBitmap(it, maxWidth = 240) }
                 }
