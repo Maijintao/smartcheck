@@ -18,7 +18,13 @@ fun UserEntity.toDomain(): User = User(
     healthCertStartDate = healthCertStartDate,
     healthCertEndDate = healthCertEndDate,
     isActive = isActive,
-    createdAt = createdAt
+    createdAt = createdAt,
+    platformVersion = platformVersion,
+    faceImageFileId = faceImageFileId,
+    faceImageSha256 = faceImageSha256,
+    healthCertImageFileId = healthCertImageFileId,
+    healthCertImageSha256 = healthCertImageSha256,
+    syncStatus = syncStatus
 )
 
 fun User.toEntity(): UserEntity = UserEntity(
@@ -36,7 +42,13 @@ fun User.toEntity(): UserEntity = UserEntity(
     healthCertStartDate = healthCertStartDate,
     healthCertEndDate = healthCertEndDate,
     isActive = isActive,
-    createdAt = createdAt
+    createdAt = createdAt,
+    platformVersion = platformVersion,
+    faceImageFileId = faceImageFileId,
+    faceImageSha256 = faceImageSha256,
+    healthCertImageFileId = healthCertImageFileId,
+    healthCertImageSha256 = healthCertImageSha256,
+    syncStatus = syncStatus
 )
 
 fun RecordEntity.toDomain(): Record = Record(

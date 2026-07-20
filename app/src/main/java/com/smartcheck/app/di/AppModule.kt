@@ -6,7 +6,10 @@ import androidx.room.Room
 import com.smartcheck.app.data.db.ApiAccessLogDao
 import com.smartcheck.app.data.db.ApiTokenDao
 import com.smartcheck.app.data.db.AppDatabase
+import com.smartcheck.app.data.db.DeletedEmployeeVersionDao
 import com.smartcheck.app.data.db.RecordDao
+import com.smartcheck.app.data.db.SyncOutboxDao
+import com.smartcheck.app.data.db.SyncStateDao
 import com.smartcheck.app.data.db.SystemUserDao
 import com.smartcheck.app.data.db.UserDao
 import com.smartcheck.app.data.repository.AdminAuthRepository
@@ -94,7 +97,8 @@ object AppModule {
                 AppDatabase.MIGRATION_5_6,
                 AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8,
-                AppDatabase.MIGRATION_8_9
+                AppDatabase.MIGRATION_8_9,
+                AppDatabase.MIGRATION_9_10
             )
             .fallbackToDestructiveMigration()
             .build()
@@ -143,6 +147,33 @@ object AppModule {
     @Singleton
     fun provideSystemUserDao(database: AppDatabase): SystemUserDao {
         return database.systemUserDao()
+    }
+
+    /**
+     * 提供 SyncOutboxDao
+     */
+    @Provides
+    @Singleton
+    fun provideSyncOutboxDao(database: AppDatabase): SyncOutboxDao {
+        return database.syncOutboxDao()
+    }
+
+    /**
+     * 提供 SyncStateDao
+     */
+    @Provides
+    @Singleton
+    fun provideSyncStateDao(database: AppDatabase): SyncStateDao {
+        return database.syncStateDao()
+    }
+
+    /**
+     * 提供 DeletedEmployeeVersionDao
+     */
+    @Provides
+    @Singleton
+    fun provideDeletedEmployeeVersionDao(database: AppDatabase): DeletedEmployeeVersionDao {
+        return database.deletedEmployeeVersionDao()
     }
 
     @Provides
@@ -213,6 +244,11 @@ object AppModule {
                     isLenient = true
                     encodeDefaults = true
                 })
+            }
+            install(io.ktor.client.plugins.HttpTimeout) {
+                requestTimeoutMillis = 30_000
+                connectTimeoutMillis = 10_000
+                socketTimeoutMillis = 30_000
             }
             engine {
                 requestTimeout = 30_000

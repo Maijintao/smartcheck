@@ -4,8 +4,17 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
     @Database(
-        entities = [UserEntity::class, RecordEntity::class, ApiTokenEntity::class, ApiAccessLogEntity::class, SystemUserEntity::class],
-        version = 9,
+        entities = [
+            UserEntity::class,
+            RecordEntity::class,
+            ApiTokenEntity::class,
+            ApiAccessLogEntity::class,
+            SystemUserEntity::class,
+            SyncOutboxEntity::class,
+            SyncStateEntity::class,
+            DeletedEmployeeVersionEntity::class
+        ],
+        version = 10,
         exportSchema = false
     )
 abstract class AppDatabase : RoomDatabase() {
@@ -14,6 +23,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun apiTokenDao(): ApiTokenDao
     abstract fun apiAccessLogDao(): ApiAccessLogDao
     abstract fun systemUserDao(): SystemUserDao
+    abstract fun syncOutboxDao(): SyncOutboxDao
+    abstract fun syncStateDao(): SyncStateDao
+    abstract fun deletedEmployeeVersionDao(): DeletedEmployeeVersionDao
 
     companion object {
         val MIGRATION_1_2 = androidx.room.migration.Migration(1, 2) { database ->
@@ -99,6 +111,60 @@ abstract class AppDatabase : RoomDatabase() {
 
         val MIGRATION_8_9 = androidx.room.migration.Migration(8, 9) { database ->
             database.execSQL("ALTER TABLE check_records ADD COLUMN isUploaded INTEGER NOT NULL DEFAULT 0")
+        }
+
+        val MIGRATION_9_10 = androidx.room.migration.Migration(9, 10) { database ->
+            // 1. users 表新增同步字段
+            database.execSQL("ALTER TABLE users ADD COLUMN platformVersion INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE users ADD COLUMN faceImageFileId TEXT")
+            database.execSQL("ALTER TABLE users ADD COLUMN faceImageSha256 TEXT")
+            database.execSQL("ALTER TABLE users ADD COLUMN healthCertImageFileId TEXT")
+            database.execSQL("ALTER TABLE users ADD COLUMN healthCertImageSha256 TEXT")
+            database.execSQL("ALTER TABLE users ADD COLUMN syncStatus TEXT NOT NULL DEFAULT 'SYNCED'")
+
+            // 2. 创建 sync_outbox 表
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS sync_outbox (
+                    operation_id TEXT PRIMARY KEY NOT NULL,
+                    operation_type TEXT NOT NULL,
+                    employee_id TEXT NOT NULL,
+                    expected_version INTEGER,
+                    payload_json TEXT,
+                    face_image_action TEXT,
+                    face_image_local_path TEXT,
+                    face_image_sha256 TEXT,
+                    health_cert_image_action TEXT,
+                    health_cert_image_local_path TEXT,
+                    health_cert_image_sha256 TEXT,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+            """)
+            database.execSQL("CREATE INDEX IF NOT EXISTS idx_outbox_status ON sync_outbox(status)")
+
+            // 3. 创建 sync_state 表（单行）
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS sync_state (
+                    id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+                    last_cursor INTEGER NOT NULL DEFAULT 0,
+                    sync_status TEXT NOT NULL DEFAULT 'IDLE',
+                    last_sync_time INTEGER,
+                    error_message TEXT
+                )
+            """)
+            database.execSQL("INSERT OR IGNORE INTO sync_state (id, last_cursor, sync_status) VALUES (1, 0, 'IDLE')")
+
+            // 4. 创建 deleted_employee_versions 表
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS deleted_employee_versions (
+                    employee_id TEXT PRIMARY KEY NOT NULL,
+                    platform_version INTEGER NOT NULL,
+                    deleted_at INTEGER NOT NULL
+                )
+            """)
         }
     }
 }

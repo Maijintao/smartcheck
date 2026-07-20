@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartcheck.app.data.sync.EmployeeSyncEngine
+import com.smartcheck.app.data.sync.EmployeeSyncRepository
 import com.smartcheck.app.domain.model.User
 import com.smartcheck.app.domain.repository.IUserRepository
 import com.smartcheck.app.ml.FaceEngine
@@ -29,6 +31,8 @@ class EmployeeDetailViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val userRepository: IUserRepository,
     private val faceEngine: FaceEngine,
+    private val syncRepo: EmployeeSyncRepository,
+    private val syncEngine: EmployeeSyncEngine,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -135,10 +139,20 @@ class EmployeeDetailViewModel @Inject constructor(
                     healthCertStartDate = healthCertStartDate,
                     healthCertEndDate = healthCertEndDate,
                     faceEmbedding = faceEmbedding,
-                    faceImagePath = faceImagePath
+                    faceImagePath = faceImagePath,
+                    syncStatus = "PENDING_UPLOAD"
                 )
-                userRepository.updateUser(updated)
-                _user.value = updated
+                // 通过 outbox 更新（同事务写 outbox + DB）
+                val newFacePath = if (_faceBitmap.value != null) faceImagePath else null
+                val newCertPath = if (_certBitmap.value != null) certImagePath else null
+                val result = syncRepo.updateLocal(updated, faceImagePath = newFacePath, certImagePath = newCertPath)
+                if (result.isSuccess) {
+                    _user.value = updated
+                    syncEngine.triggerSync()
+                } else {
+                    emitError("保存失败: ${result.exceptionOrNull()?.message}")
+                    return@launch
+                }
 
                 if (faceEmbedding != null) {
                     Timber.d("人脸已更新，刷新缓存")
@@ -160,13 +174,19 @@ class EmployeeDetailViewModel @Inject constructor(
     fun deleteUser() {
         val current = _user.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            userRepository.deleteUser(current.id)
-            runCatching {
-                faceEngine.refreshUserCache()
-            }.onFailure { e ->
-                Timber.w(e, "删除员工后刷新人脸缓存失败")
+            // 通过 outbox 删除（同事务写 outbox + DB）
+            val result = syncRepo.deleteLocal(current.employeeId, current.platformVersion)
+            if (result.isSuccess) {
+                runCatching {
+                    faceEngine.refreshUserCache()
+                }.onFailure { e ->
+                    Timber.w(e, "删除员工后刷新人脸缓存失败")
+                }
+                syncEngine.triggerSync()
+                _events.tryEmit(UiEvent.Saved)
+            } else {
+                emitError("删除失败: ${result.exceptionOrNull()?.message}")
             }
-            _events.tryEmit(UiEvent.Saved)
         }
     }
 
@@ -277,14 +297,34 @@ class EmployeeDetailViewModel @Inject constructor(
                     }
 
                     if (current == null) {
-                        val result = userRepository.createUser(newUser)
+                        // 新增员工（走 outbox）
+                        val result = syncRepo.createLocal(
+                            newUser,
+                            faceImagePath = faceImageName,
+                            certImagePath = certImageName
+                        )
                         result.fold(
-                            onSuccess = { newId -> _user.value = newUser.copy(id = newId) },
-                            onFailure = { emitError("创建用户失败") }
+                            onSuccess = {
+                                // 获取 Room 生成的 ID
+                                val created = userRepository.getUserByEmployeeId(trimmedId).getOrNull()
+                                _user.value = created ?: newUser
+                                syncEngine.triggerSync()
+                            },
+                            onFailure = { emitError("创建用户失败: ${it.message}") }
                         )
                     } else {
-                        userRepository.updateUser(newUser)
-                        _user.value = newUser
+                        // 更新已有员工（走 outbox）
+                        val result = syncRepo.updateLocal(
+                            newUser,
+                            faceImagePath = faceImageName,
+                            certImagePath = certImageName
+                        )
+                        if (result.isSuccess) {
+                            _user.value = newUser
+                            syncEngine.triggerSync()
+                        } else {
+                            emitError("保存失败: ${result.exceptionOrNull()?.message}")
+                        }
                     }
 
                     runCatching {

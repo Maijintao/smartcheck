@@ -15,7 +15,15 @@ data class User(
     val healthCertStartDate: Long? = null,
     val healthCertEndDate: Long? = null,
     val isActive: Boolean = true,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+
+    // === 平台同步字段 ===
+    val platformVersion: Long = 0,
+    val faceImageFileId: String? = null,
+    val faceImageSha256: String? = null,
+    val healthCertImageFileId: String? = null,
+    val healthCertImageSha256: String? = null,
+    val syncStatus: String = "SYNCED"
 ) {
     fun getHealthCertStatus(): HealthCertStatus {
         val endDate = healthCertEndDate ?: return HealthCertStatus.EXPIRED
@@ -44,6 +52,7 @@ data class User(
         if (id != other.id) return false
         if (name != other.name) return false
         if (employeeId != other.employeeId) return false
+        if (platformVersion != other.platformVersion) return false
         if (faceEmbedding != null) {
             if (other.faceEmbedding == null) return false
             if (!faceEmbedding.contentEquals(other.faceEmbedding)) return false

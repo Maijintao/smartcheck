@@ -8,6 +8,8 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraXConfig
 import com.smartcheck.app.api.KtorServerManager
+import com.smartcheck.app.data.sync.EmployeeSyncEngine
+import com.smartcheck.app.data.sync.SyncScheduler
 import com.smartcheck.app.data.upload.DeviceHeartbeatManager
 import com.smartcheck.app.data.upload.NetworkMonitor
 import com.smartcheck.app.data.upload.PendingUploadManager
@@ -23,6 +25,8 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class App : Application(), CameraXConfig.Provider {
@@ -38,6 +42,15 @@ class App : Application(), CameraXConfig.Provider {
 
     @Inject
     lateinit var deviceHeartbeatManager: DeviceHeartbeatManager
+
+    @Inject
+    lateinit var employeeSyncEngine: EmployeeSyncEngine
+
+    @Inject
+    lateinit var syncScheduler: SyncScheduler
+
+    @Inject
+    lateinit var appScope: CoroutineScope
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +84,9 @@ class App : Application(), CameraXConfig.Provider {
 
         // 启动设备心跳管理器（平台保活）
         startDeviceHeartbeat()
+
+        // 启动员工同步引擎
+        startEmployeeSync()
     }
 
     private fun startKtorServer() {
@@ -216,6 +232,34 @@ class App : Application(), CameraXConfig.Provider {
             }, 5000)
         } catch (e: Exception) {
             Timber.e(e, "Failed to start DeviceHeartbeatManager")
+        }
+    }
+
+    private fun startEmployeeSync() {
+        try {
+            // 启动时触发首次同步（延迟 6s，等 Ktor 启动和网络稳定）
+            android.os.Handler(mainLooper).postDelayed({
+                if (::employeeSyncEngine.isInitialized) {
+                    appScope.launch {
+                        try {
+                            employeeSyncEngine.triggerSync()
+                            Timber.i("Employee sync triggered on app launch")
+                        } catch (e: Exception) {
+                            Timber.w(e, "Employee sync failed on app launch")
+                        }
+                    }
+                } else {
+                    Timber.w("EmployeeSyncEngine not initialized yet")
+                }
+            }, 6000)
+
+            // 启动 30 秒定时同步
+            if (::syncScheduler.isInitialized) {
+                syncScheduler.startPeriodicSync(appScope, intervalMs = 30_000L)
+                Timber.i("SyncScheduler started (30s interval)")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start employee sync")
         }
     }
 

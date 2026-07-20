@@ -9,11 +9,11 @@ import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import com.smartcheck.app.ui.screens.AdminLoginScreen
 import com.smartcheck.app.ui.screens.AdminScreen
+import com.smartcheck.app.ui.screens.ConflictResolutionScreen
 import com.smartcheck.app.ui.screens.DashboardScreen
 import com.smartcheck.app.ui.screens.EmployeeDetailScreen
 import com.smartcheck.app.ui.screens.EmployeeEnrollScreen
 import com.smartcheck.app.ui.screens.EmployeeListScreen
-import com.smartcheck.app.ui.screens.EmployeeCloudImportScreen
 import com.smartcheck.app.ui.screens.HomeScreen
 import com.smartcheck.app.ui.screens.ReportExportScreen
 import com.smartcheck.app.ui.screens.SettingsScreen
@@ -26,7 +26,7 @@ import com.smartcheck.app.viewmodel.AdminAuthViewModel
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
-    
+
     NavHost(
         navController = navController,
         startDestination = "login"
@@ -72,13 +72,7 @@ fun AppNavigation() {
                     navController.navigate("employee_detail/$employeeId")
                 },
                 onNavigateEmployeeNew = { navController.navigate("employee_new") },
-                onNavigateCloudImport = { navController.navigate("employee_cloud_import") }
-            )
-        }
-
-        composable("employee_cloud_import") {
-            EmployeeCloudImportScreen(
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateConflict = { navController.navigate("conflict_resolution") }
             )
         }
 
@@ -93,6 +87,12 @@ fun AppNavigation() {
 
         composable("employee_new") {
             EmployeeDetailScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("conflict_resolution") {
+            ConflictResolutionScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

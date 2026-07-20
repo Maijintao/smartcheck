@@ -24,14 +24,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material.ripple.rememberRipple
@@ -60,6 +63,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
+import com.smartcheck.app.data.sync.SyncEngineStatus
+import com.smartcheck.app.ui.components.SyncStatusIndicator
 import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.viewmodel.EmployeeListViewModel
 
@@ -68,10 +73,12 @@ fun EmployeeListScreen(
     onNavigateBack: () -> Unit,
     onNavigateEmployeeDetail: (String) -> Unit,
     onNavigateEmployeeNew: () -> Unit,
-    onNavigateCloudImport: () -> Unit,
+    onNavigateConflict: () -> Unit,
     viewModel: EmployeeListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
+    val lastSyncTime by viewModel.lastSyncTime.collectAsState()
 
     val primaryBlue = Color(0xFF2563EB)
     val primaryLight = Color(0xFFEFF6FF)
@@ -123,7 +130,7 @@ fun EmployeeListScreen(
                 Row(
                     modifier = Modifier.widthIn(max = 560.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     EmployeeSearchField(
                         value = uiState.query,
@@ -136,13 +143,47 @@ fun EmployeeListScreen(
                             .widthIn(min = 240.dp, max = 360.dp)
                             .height(44.dp)
                     )
-                    PillActionButton(
-                        text = "批量导入",
-                        icon = Icons.Default.CloudUpload,
-                        container = primaryLight,
-                        contentColor = primaryBlue,
-                        onClick = onNavigateCloudImport
-                    )
+                    // 同步状态指示器
+                    SyncStatusIndicator(syncState = syncState, lastSyncTime = lastSyncTime)
+
+                    // 冲突标记（如有）
+                    if (uiState.items.any { it.syncStatus == "CONFLICT" }) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFFFEF3C7))
+                                .clickable(onClick = onNavigateConflict)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = "同步冲突",
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "有冲突",
+                                    color = Color(0xFFD97706),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    // 手动同步按钮
+                    IconButton(
+                        onClick = { viewModel.triggerSync() },
+                        enabled = syncState != SyncEngineStatus.SYNCING
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "立即同步",
+                            tint = primaryBlue
+                        )
+                    }
                 }
             }
         }
@@ -168,6 +209,9 @@ fun EmployeeListScreen(
                     EmployeeCard(
                         employee = employee,
                         onClick = { onNavigateEmployeeDetail(employee.id) },
+                        onDelete = {
+                            viewModel.deleteEmployee(employee.employeeId, employee.platformVersion)
+                        },
                         textMain = textMain,
                         textMuted = textMuted
                     )
@@ -281,6 +325,7 @@ private fun AddEmployeeCard(
 private fun EmployeeCard(
     employee: EmployeeListViewModel.EmployeeListItem,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
     textMain: Color,
     textMuted: Color
 ) {
@@ -311,6 +356,21 @@ private fun EmployeeCard(
                     .weight(0.65f)
                     .background(photoGradient)
             ) {
+                // 删除按钮（右上角）
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "删除员工",
+                        tint = Color(0xFFEF4444).copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 val facePath = employee.faceImagePath
                 if (!facePath.isNullOrBlank()) {
                     val imageFile = FileUtil.getRecordImageFile(context, facePath)
