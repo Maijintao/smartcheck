@@ -367,11 +367,13 @@ class EmployeeSyncEngine @Inject constructor(
         for (change in changes) {
             val emp = change.employee ?: continue
 
-            // 下载人脸图片
+            // 下载人脸图片（sha256 不同 或 本地图片文件不存在 都需要下载）
             if (emp.faceImage != null) {
                 val faceImageRef = emp.faceImage
                 val localEntity = userDao.getUserByEmployeeId(emp.employeeId)
-                if (localEntity?.faceImageSha256 != faceImageRef.sha256) {
+                val needFaceDownload = localEntity?.faceImageSha256 != faceImageRef.sha256
+                        || localEntity?.faceImagePath.isNullOrBlank()
+                if (needFaceDownload) {
                     try {
                         val downloadResult = imageHelper.downloadVerifySave(
                             syncApi, faceImageRef.fileId, faceImageRef.sha256
@@ -393,19 +395,23 @@ class EmployeeSyncEngine @Inject constructor(
                                 embedding = embedding
                             )
                             needRefreshCache = true
-                            Timber.d("$TAG: 人脸图片下载+特征提取完成: ${emp.employeeId}")
+                            Timber.d("$TAG: 人脸图片下载+特征提取完成: ${emp.employeeId}, path=$localFileName")
+                        } else {
+                            Timber.w("$TAG: 人脸图片下载失败: ${emp.employeeId}, ${downloadResult.exceptionOrNull()?.message}")
                         }
                     } catch (e: Exception) {
-                        Timber.w(e, "$TAG: 人脸图片下载失败: ${emp.employeeId} - ${faceImageRef.fileId}")
+                        Timber.w(e, "$TAG: 人脸图片下载异常: ${emp.employeeId} - ${faceImageRef.fileId}")
                     }
                 }
             }
 
-            // 下载健康证图片
+            // 下载健康证图片（sha256 不同 或 本地图片文件不存在 都需要下载）
             val certImageRef = emp.healthCertificate?.image
             if (certImageRef != null) {
                 val localEntity = userDao.getUserByEmployeeId(emp.employeeId)
-                if (localEntity?.healthCertImageSha256 != certImageRef.sha256) {
+                val needCertDownload = localEntity?.healthCertImageSha256 != certImageRef.sha256
+                        || localEntity?.healthCertImagePath.isNullOrBlank()
+                if (needCertDownload) {
                     try {
                         val downloadResult = imageHelper.downloadVerifySave(
                             syncApi, certImageRef.fileId, certImageRef.sha256
@@ -418,10 +424,12 @@ class EmployeeSyncEngine @Inject constructor(
                                 sha256 = certImageRef.sha256,
                                 imagePath = localFileName
                             )
-                            Timber.d("$TAG: 健康证图片下载完成: ${emp.employeeId}")
+                            Timber.d("$TAG: 健康证图片下载完成: ${emp.employeeId}, path=$localFileName")
+                        } else {
+                            Timber.w("$TAG: 健康证图片下载失败: ${emp.employeeId}, ${downloadResult.exceptionOrNull()?.message}")
                         }
                     } catch (e: Exception) {
-                        Timber.w(e, "$TAG: 健康证图片下载失败: ${emp.employeeId} - ${certImageRef.fileId}")
+                        Timber.w(e, "$TAG: 健康证图片下载异常: ${emp.employeeId} - ${certImageRef.fileId}")
                     }
                 }
             }
@@ -439,22 +447,44 @@ class EmployeeSyncEngine @Inject constructor(
 
     /** 快照同步时的图片处理 */
     private suspend fun downloadAndProcessImage(emp: PlatformEmployee) {
-        val faceImageRef = emp.faceImage ?: return
-        try {
-            val result = imageHelper.downloadVerifySave(syncApi, faceImageRef.fileId, faceImageRef.sha256)
-            if (result.isSuccess) {
-                val fileName = result.getOrThrow()
-                val featureResult = imageHelper.extractFaceFeature(fileName)
-                userDao.updateFaceImageMeta(
-                    employeeId = emp.employeeId,
-                    fileId = faceImageRef.fileId,
-                    sha256 = faceImageRef.sha256,
-                    imagePath = fileName,
-                    embedding = featureResult.getOrNull()
-                )
+        // 人脸图片
+        val faceImageRef = emp.faceImage
+        if (faceImageRef != null) {
+            try {
+                val result = imageHelper.downloadVerifySave(syncApi, faceImageRef.fileId, faceImageRef.sha256)
+                if (result.isSuccess) {
+                    val fileName = result.getOrThrow()
+                    val featureResult = imageHelper.extractFaceFeature(fileName)
+                    userDao.updateFaceImageMeta(
+                        employeeId = emp.employeeId,
+                        fileId = faceImageRef.fileId,
+                        sha256 = faceImageRef.sha256,
+                        imagePath = fileName,
+                        embedding = featureResult.getOrNull()
+                    )
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "$TAG: 快照人脸图片处理失败: ${emp.employeeId}")
             }
-        } catch (e: Exception) {
-            Timber.w(e, "$TAG: 快照图片处理失败: ${emp.employeeId}")
+        }
+
+        // 健康证图片
+        val certImageRef = emp.healthCertificate?.image
+        if (certImageRef != null) {
+            try {
+                val result = imageHelper.downloadVerifySave(syncApi, certImageRef.fileId, certImageRef.sha256)
+                if (result.isSuccess) {
+                    val fileName = result.getOrThrow()
+                    userDao.updateHealthCertImageMeta(
+                        employeeId = emp.employeeId,
+                        fileId = certImageRef.fileId,
+                        sha256 = certImageRef.sha256,
+                        imagePath = fileName
+                    )
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "$TAG: 快照健康证图片处理失败: ${emp.employeeId}")
+            }
         }
     }
 }
