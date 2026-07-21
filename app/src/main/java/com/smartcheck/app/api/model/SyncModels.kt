@@ -60,7 +60,7 @@ data class ImageReference(
 /** 上传时的健康证（§7.2 嵌套在 employee 内） */
 @Serializable
 data class HealthCertUploadPayload(
-    val code: String,
+    val code: String? = null,
     @SerialName("start_date") val startDate: String,         // "YYYY-MM-DD"
     @SerialName("end_date") val endDate: String,
     val status: String,                                       // VALID / EXPIRED / REVOKED
@@ -70,7 +70,7 @@ data class HealthCertUploadPayload(
 /** 平台返回的健康证引用（§5.1 嵌套在 employee 内） */
 @Serializable
 data class HealthCertReference(
-    val code: String,
+    val code: String? = null,
     @SerialName("start_date") val startDate: String,
     @SerialName("end_date") val endDate: String,
     val status: String,
