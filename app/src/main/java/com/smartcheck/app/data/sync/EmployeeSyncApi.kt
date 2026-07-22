@@ -19,29 +19,41 @@ import javax.inject.Singleton
 data class UploadChangesWrapper(
     val code: Int = 0,
     val message: String = "",
+    val msg: String = "",
     val data: UploadChangesResponse? = null
-)
+) {
+    fun errorMessage(): String = message.ifBlank { msg }
+}
 
 @kotlinx.serialization.Serializable
 data class PullChangesWrapper(
     val code: Int = 0,
     val message: String = "",
+    val msg: String = "",
     val data: PullChangesResponse? = null
-)
+) {
+    fun errorMessage(): String = message.ifBlank { msg }
+}
 
 @kotlinx.serialization.Serializable
 data class EmployeeDetailWrapper(
     val code: Int = 0,
     val message: String = "",
+    val msg: String = "",
     val data: EmployeeDetailResponse? = null
-)
+) {
+    fun errorMessage(): String = message.ifBlank { msg }
+}
 
 @kotlinx.serialization.Serializable
 data class SnapshotWrapper(
     val code: Int = 0,
     val message: String = "",
+    val msg: String = "",
     val data: SnapshotResponse? = null
-)
+) {
+    fun errorMessage(): String = message.ifBlank { msg }
+}
 
 // ==================== 同步 API Client ====================
 
@@ -84,7 +96,7 @@ class EmployeeSyncApi @Inject constructor(
                 }
                 checkHttpError(response, "uploadChanges")?.let { return@withContext it }
                 val wrapper: UploadChangesWrapper = response.body()
-                checkBizCode(wrapper.code, wrapper.message, "uploadChanges")
+                checkBizCode(wrapper.code, wrapper.errorMessage(), "uploadChanges")
                     ?.let { return@withContext it }
                 val data = wrapper.data
                     ?: return@withContext Result.failure(Exception("响应 data 为空"))
@@ -111,7 +123,7 @@ class EmployeeSyncApi @Inject constructor(
                 }
                 checkHttpError(response, "pullChanges")?.let { return@withContext it }
                 val wrapper: PullChangesWrapper = response.body()
-                checkBizCode(wrapper.code, wrapper.message, "pullChanges")
+                checkBizCode(wrapper.code, wrapper.errorMessage(), "pullChanges")
                     ?.let { return@withContext it }
                 val data = wrapper.data
                     ?: return@withContext Result.failure(Exception("响应 data 为空"))
@@ -136,7 +148,7 @@ class EmployeeSyncApi @Inject constructor(
                 }
                 checkHttpError(response, "getEmployee")?.let { return@withContext it }
                 val wrapper: EmployeeDetailWrapper = response.body()
-                checkBizCode(wrapper.code, wrapper.message, "getEmployee")
+                checkBizCode(wrapper.code, wrapper.errorMessage(), "getEmployee")
                     ?.let { return@withContext it }
                 val data = wrapper.data
                     ?: return@withContext Result.failure(Exception("响应 data 为空"))
@@ -161,7 +173,7 @@ class EmployeeSyncApi @Inject constructor(
                 }
                 checkHttpError(response, "getSnapshot")?.let { return@withContext it }
                 val wrapper: SnapshotWrapper = response.body()
-                checkBizCode(wrapper.code, wrapper.message, "getSnapshot")
+                checkBizCode(wrapper.code, wrapper.errorMessage(), "getSnapshot")
                     ?.let { return@withContext it }
                 val data = wrapper.data
                     ?: return@withContext Result.failure(Exception("响应 data 为空"))

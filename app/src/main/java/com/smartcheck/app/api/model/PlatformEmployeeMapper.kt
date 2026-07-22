@@ -20,7 +20,7 @@ fun PlatformEmployee.toDomain(): User = User(
     idCardNumber = idCardNumber ?: "",
     phone = phone ?: "",
     position = position ?: "",
-    department = "",
+    department = department ?: "",
     healthCertCode = healthCertificate?.code ?: "",
     healthCertStartDate = healthCertificate?.startDate?.parseDateToMillis(),
     healthCertEndDate = healthCertificate?.endDate?.parseDateToMillis(),
@@ -81,6 +81,7 @@ fun User.toUploadEmployee(
         idCardNumber = idCardNumber.ifBlank { null },
         phone = phone.ifBlank { null },
         position = position.ifBlank { null },
+        department = department.ifBlank { null },
         status = if (isActive) "ACTIVE" else "DISABLED",
         faceImage = faceImage,
         healthCertificate = healthCert

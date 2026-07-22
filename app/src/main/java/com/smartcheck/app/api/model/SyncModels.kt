@@ -86,6 +86,7 @@ data class UploadEmployee(
     @SerialName("id_card_number") val idCardNumber: String? = null,
     val phone: String? = null,
     val position: String? = null,
+    val department: String? = null,
     val status: String = "ACTIVE",                            // ACTIVE / DISABLED
     @SerialName("face_image") val faceImage: ImageUploadPayload,
     @SerialName("health_certificate") val healthCertificate: HealthCertUploadPayload? = null
@@ -99,6 +100,7 @@ data class PlatformEmployee(
     @SerialName("id_card_number") val idCardNumber: String? = null,
     val phone: String? = null,
     val position: String? = null,
+    val department: String? = null,
     val status: String = "ACTIVE",
     @SerialName("face_image") val faceImage: ImageReference? = null,
     @SerialName("health_certificate") val healthCertificate: HealthCertReference? = null,
@@ -142,9 +144,11 @@ data class SyncOperationResult(
 /** 上传变更响应（§7.4） */
 @Serializable
 data class UploadChangesResponse(
+    @SerialName("batch_id") val batchId: String? = null,
     val accepted: Int,
     val duplicates: Int,
     val conflicts: Int,
+    val rejected: Int = 0,
     @SerialName("server_cursor") val serverCursor: Long,
     val results: List<SyncOperationResult>
 )
