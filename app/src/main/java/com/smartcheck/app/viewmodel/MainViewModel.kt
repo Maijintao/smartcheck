@@ -15,6 +15,7 @@ import com.smartcheck.app.domain.model.toEntity
 import com.smartcheck.app.domain.model.HandStatus
 import com.smartcheck.app.domain.model.HealthCertStatus
 import com.smartcheck.app.domain.model.Record
+import com.smartcheck.app.domain.model.SymptomType
 import com.smartcheck.app.domain.repository.IRecordRepository
 import com.smartcheck.app.domain.repository.IUserRepository
 import com.smartcheck.app.domain.repository.IVoiceService
@@ -123,6 +124,7 @@ class MainViewModel @Inject constructor(
     private var handCooldownJob: Job? = null
     private var autoSubmitJob: Job? = null
     private var handFrameMirrored: Boolean = false
+    private var isRetaking: Boolean = false
 
     private var currentFacePath: String? = null
     private var currentPalmPath: String? = null
@@ -579,7 +581,7 @@ class MainViewModel @Inject constructor(
         turnAllLightsOff()
         morningCheckUseCase.speakTemperatureAbnormal(temp)
         
-        saveCheckRecord(isPassed = false, isTempNormal = false, isHandNormal = true)
+        saveCheckRecord(isPassed = false, isTempNormal = false, isHandNormal = false)
         
         scheduleReset(5000)
     }
@@ -636,9 +638,14 @@ class MainViewModel @Inject constructor(
     fun submitSymptoms(symptoms: List<String>) {
         if (_uiState.value.state != CheckState.SYMPTOM_CHECKING) return
 
+        // 暂存症状到 UiState，供 finalizeCheckRecord 写入记录
+        _uiState.update { it.copy(submittedSymptoms = symptoms) }
+
         val result = morningCheckUseCase.processSymptomSubmission(symptoms)
         if (result.isAllPass) {
             onAllPass(remark = "无")
+        } else if (result.hasFever) {
+            onFeverBlocked(symptoms)
         } else {
             onSymptomFail(symptoms)
         }
@@ -679,11 +686,28 @@ class MainViewModel @Inject constructor(
         hardwareRepository.beep("error")
         turnAllLightsOff()
         morningCheckUseCase.speakSymptomFail()
-        
+
         finalizeCheckRecord()
     }
 
-    fun finalizeCheckRecord() {
+    private fun onFeverBlocked(symptoms: List<String>) {
+        val summary = symptoms.joinToString(", ")
+        _uiState.update {
+            it.copy(
+                state = CheckState.SYMPTOM_FAIL,
+                message = "有发烧症状，禁止上岗",
+                symptomFlags = summary
+            )
+        }
+
+        hardwareRepository.beep("error")
+        turnAllLightsOff()
+        // 语音已在 processSymptomSubmission 中播报"有发烧症状，禁止上岗"
+
+        finalizeCheckRecord(remark = "发烧症状，禁止上岗")
+    }
+
+    fun finalizeCheckRecord(remark: String = "") {
         val state = _uiState.value
         if (state.isSubmitting || state.isRecordFinalized) return
         if (state.currentUserId == null) return
@@ -692,8 +716,8 @@ class MainViewModel @Inject constructor(
         // 允许在任何状态下提交（只要有手心手背照片）
         // 根据检查结果决定是否通过
         val isPassed = state.state == CheckState.ALL_PASS
-        val isTempNormal = state.state != CheckState.TEMP_FAIL && state.state != CheckState.HAND_FAIL
-        val isHandNormal = !state.handHasIssue
+        // 体温：只看体温阶段是否异常，手部异常不影响体温判定
+        val isTempNormal = state.state != CheckState.TEMP_FAIL
 
         _uiState.update { it.copy(isSubmitting = true) }
 
@@ -713,9 +737,10 @@ class MainViewModel @Inject constructor(
                     else -> HealthCertStatus.VALID
                 }
 
+                // 手掌/手背独立判定
                 val handCheckResult = HandCheckResult(
-                    palmNormal = isHandNormal,
-                    backNormal = isHandNormal,
+                    palmNormal = !state.palmHasIssue,
+                    backNormal = !state.backHasIssue,
                     palmImagePath = currentPalmPath,
                     backImagePath = currentBackPath
                 )
@@ -725,6 +750,9 @@ class MainViewModel @Inject constructor(
                     ?: "未知用户"
                 Timber.tag("MainViewModel").d("saveRecord userName: state='${state.currentUserName}', db='${user?.name}', final='$actualUserName'")
 
+                // 解析用户提交的症状到 SymptomType 枚举
+                val symptoms = state.submittedSymptoms.mapNotNull { parseSymptomType(it) }
+
                 val result = morningCheckUseCase.saveRecord(
                     userId = state.currentUserId,
                     userName = actualUserName,
@@ -732,7 +760,7 @@ class MainViewModel @Inject constructor(
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,
                     handCheckResult = handCheckResult,
-                    symptoms = emptyList(),
+                    symptoms = symptoms,
                     healthCertStatus = healthCertStatus,
                     faceImagePath = currentFacePath,
                     palmImagePath = currentPalmPath,
@@ -740,15 +768,20 @@ class MainViewModel @Inject constructor(
                 )
 
                 result.onSuccess { savedRecord ->
-                    Timber.tag("MainViewModel").d("Record saved: $savedRecord")
+                    val finalRecord = if (remark.isNotBlank()) savedRecord.copy(remark = remark) else savedRecord
+                    // 如果有 remark，更新数据库中的记录
+                    if (remark.isNotBlank()) {
+                        recordRepository.saveRecord(finalRecord)
+                    }
+                    Timber.tag("MainViewModel").d("Record saved: $finalRecord")
                     runCatching {
-                        recordUploadReporter.upload(savedRecord.toEntity())
+                        recordUploadReporter.upload(finalRecord.toEntity())
                     }.onFailure { e ->
                         Timber.tag("MainViewModel").e(e, "Failed to upload record")
                     }
 
                     // 入队等待上传（支持离线队列）
-                    pendingUploadManager.enqueue(savedRecord.id)
+                    pendingUploadManager.enqueue(finalRecord.id)
                 }.onFailure { e ->
                     Timber.tag("MainViewModel").e(e, "Failed to save record")
                 }
@@ -771,25 +804,56 @@ class MainViewModel @Inject constructor(
         val state = _uiState.value
         if (state.currentUserId == null) return
         if (state.isSubmitting) return
-        startHandPalmCheck()
+        isRetaking = true
+        handOkFrames = 0
+        handStepStartAt = System.currentTimeMillis()
+        handCooldownJob?.cancel()
+        // 只清除手掌相关状态，保留手背
+        currentPalmPath = null
+        currentPalmBitmap?.safeRecycle()
+        currentPalmBitmap = null
+        _uiState.update {
+            it.copy(
+                state = CheckState.HAND_PALM_CHECKING,
+                message = "请同时伸出两只手心",
+                handPalmPath = null,
+                handPalmInfos = emptyList(),
+                handPalmFrameWidth = null,
+                handPalmFrameHeight = null,
+                palmHasIssue = false,
+                handHasIssue = it.backHasIssue,
+                handDetectionResults = if (it.backHasIssue) it.handDetectionResults else emptyList()
+            )
+        }
+        voiceService.speak("请同时伸出两只手心")
     }
 
     fun retakeHandBack() {
         val state = _uiState.value
         if (state.currentUserId == null) return
         if (state.isSubmitting) return
-        val palmIssues = state.handPalmInfos.filter { it.hasForeignObject }.map { it.label }
+        isRetaking = true
+        handOkFrames = 0
+        handStepStartAt = System.currentTimeMillis()
+        handCooldownJob?.cancel()
+        // 只清除手背相关状态，保留手掌
+        currentBackPath = null
+        currentBackBitmap?.safeRecycle()
+        currentBackBitmap = null
         _uiState.update {
             it.copy(
+                state = CheckState.HAND_BACK_CHECKING,
+                message = "请同时伸出两只手背",
                 handBackPath = null,
                 handBackInfos = emptyList(),
                 handBackFrameWidth = null,
                 handBackFrameHeight = null,
-                handHasIssue = palmIssues.isNotEmpty(),
-                handDetectionResults = palmIssues
+                backHasIssue = false,
+                handHasIssue = it.palmHasIssue,
+                handDetectionResults = if (it.palmHasIssue) it.handDetectionResults else emptyList()
             )
         }
-        startHandBackCheck()
+        voiceService.speak("请同时伸出两只手背")
     }
 
     private fun startHandPalmCheck() {
@@ -896,7 +960,13 @@ class MainViewModel @Inject constructor(
                 }
 
                 val hasForeignObject = results.any { it.hasForeignObject }
-                val hasIssueSoFar = hasForeignObject || _uiState.value.handHasIssue
+                // 使用阶段特定的异常标记，避免手掌/手背互相影响
+                val stageHasIssue = when (state) {
+                    CheckState.HAND_PALM_CHECKING -> _uiState.value.palmHasIssue
+                    CheckState.HAND_BACK_CHECKING -> _uiState.value.backHasIssue
+                    else -> false
+                }
+                val hasIssueSoFar = hasForeignObject || stageHasIssue
                 if (hasIssueSoFar) {
                     val issues = if (hasForeignObject) {
                         results.filter { it.hasForeignObject }.map { it.label }.ifEmpty { results.map { it.label } }
@@ -909,6 +979,7 @@ class MainViewModel @Inject constructor(
                                 handPalmInfos = stageHands,
                                 handPalmFrameWidth = frame.width,
                                 handPalmFrameHeight = frame.height,
+                                palmHasIssue = true,
                                 handHasIssue = true,
                                 handDetectionResults = issues
                             )
@@ -917,6 +988,7 @@ class MainViewModel @Inject constructor(
                                 handBackInfos = stageHands,
                                 handBackFrameWidth = frame.width,
                                 handBackFrameHeight = frame.height,
+                                backHasIssue = true,
                                 handHasIssue = true,
                                 handDetectionResults = issues
                             )
@@ -936,7 +1008,8 @@ class MainViewModel @Inject constructor(
                         captureHandPalmAndCooldown(frame, stageHands)
                     } else {
                         val issues = _uiState.value.handDetectionResults
-                        val hasPriorIssue = _uiState.value.handHasIssue
+                        // 只看手背自身的异常标记，不受手掌影响
+                        val hasPriorIssue = _uiState.value.backHasIssue
                         captureHandBackAndFinish(frame, stageHands, issues, isIssue = hasPriorIssue)
                     }
                 }
@@ -994,7 +1067,11 @@ class MainViewModel @Inject constructor(
                     isTempNormal = isTempNormal,
                     isHandNormal = isHandNormal,
                     isPassed = isPassed,
-                    handStatus = if (isHandNormal) HandStatus.NORMAL else HandStatus.ABNORMAL,
+                    handStatus = when {
+                        currentPalmPath == null && currentBackPath == null -> HandStatus.NOT_CHECKED
+                        isHandNormal -> HandStatus.NORMAL
+                        else -> HandStatus.ABNORMAL
+                    },
                     healthCertStatus = healthCertStatus,
                     symptomFlags = emptyList(),
                     faceImagePath = currentFacePath,
@@ -1035,6 +1112,19 @@ class MainViewModel @Inject constructor(
     }
 
     /**
+     * 将中文症状字符串映射到 SymptomType 枚举
+     */
+    private fun parseSymptomType(symptom: String): SymptomType? = when {
+        symptom.contains("发烧") || symptom.contains("发热") -> SymptomType.FEVER
+        symptom.contains("咳嗽") -> SymptomType.COUGH
+        symptom.contains("头痛") -> SymptomType.HEADACHE
+        symptom.contains("疲劳") || symptom.contains("乏力") -> SymptomType.FATIGUE
+        symptom.contains("咽痛") || symptom.contains("喉咙") -> SymptomType.SORE_THROAT
+        symptom.contains("腹泻") -> SymptomType.DIARRHEA
+        else -> SymptomType.OTHER
+    }
+
+    /**
      * 定时重置状态机
      */
     private fun scheduleReset(delayMs: Long) {
@@ -1070,6 +1160,7 @@ class MainViewModel @Inject constructor(
         handOkFrames = 0
         handStepStartAt = 0L
         lastFaceFrameAt = 0L
+        isRetaking = false
         currentFacePath = null
         currentPalmPath = null
         currentBackPath = null
@@ -1104,11 +1195,22 @@ class MainViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     state = CheckState.HAND_FAIL,
-                    message = "手部检测不合格"
+                    message = "手部检测不合格",
+                    palmHasIssue = true,
+                    handHasIssue = true
                 )
             }
         } else {
             hardwareRepository.beep("success")
+            // 检测通过，清除手掌异常标记
+            if (isRetaking) {
+                _uiState.update {
+                    it.copy(
+                        palmHasIssue = false,
+                        handHasIssue = it.backHasIssue
+                    )
+                }
+            }
         }
         if (currentPalmBitmap == null) {
             val snapshot = frame.copy(Bitmap.Config.ARGB_8888, false)
@@ -1147,7 +1249,13 @@ class MainViewModel @Inject constructor(
         handCooldownJob?.cancel()
         handCooldownJob = viewModelScope.launch {
             delay(HAND_STAGE_COOLDOWN_MS)
-            startHandBackCheck()
+            if (isRetaking) {
+                // 复检：评估整体状态
+                isRetaking = false
+                evaluateHandStateAfterRetake()
+            } else {
+                startHandBackCheck()
+            }
         }
     }
 
@@ -1163,11 +1271,22 @@ class MainViewModel @Inject constructor(
                 it.copy(
                     state = CheckState.HAND_FAIL,
                     message = "手部检测不合格",
+                    backHasIssue = true,
+                    handHasIssue = true,
                     handDetectionResults = if (issues.isNotEmpty()) issues else it.handDetectionResults,
                 )
             }
         } else {
             hardwareRepository.beep("success")
+            // 检测通过，清除手背异常标记
+            if (isRetaking) {
+                _uiState.update {
+                    it.copy(
+                        backHasIssue = false,
+                        handHasIssue = it.palmHasIssue
+                    )
+                }
+            }
         }
         if (currentBackBitmap == null) {
             val snapshot = frame.copy(Bitmap.Config.ARGB_8888, false)
@@ -1202,7 +1321,11 @@ class MainViewModel @Inject constructor(
                 }
             }
         }
-        if (isIssue) {
+        if (isRetaking) {
+            // 复检：评估整体状态
+            isRetaking = false
+            evaluateHandStateAfterRetake()
+        } else if (isIssue) {
             _uiState.update {
                 it.copy(
                     state = CheckState.SYMPTOM_CHECKING,
@@ -1212,6 +1335,39 @@ class MainViewModel @Inject constructor(
             }
         } else {
             startAutoSubmitCountdown()
+        }
+    }
+
+    /**
+     * 复检后评估手部整体状态
+     * 手掌和手背都无异常 → 通过；任一有异常 → SYMPTOM_CHECKING
+     */
+    private fun evaluateHandStateAfterRetake() {
+        val state = _uiState.value
+        val anyIssue = state.palmHasIssue || state.backHasIssue
+        if (anyIssue) {
+            _uiState.update {
+                it.copy(
+                    state = CheckState.SYMPTOM_CHECKING,
+                    message = "手部检测异常，请人工复核",
+                    handHasIssue = true,
+                    autoSubmitRemainingSec = null
+                )
+            }
+        } else {
+            // 手掌手背都通过
+            _handDetectionState.value = emptyList()
+            hardwareRepository.beep("success")
+            morningCheckUseCase.speakAllPass()
+            _uiState.update {
+                it.copy(
+                    state = CheckState.ALL_PASS,
+                    message = "晨检通过！",
+                    handHasIssue = false,
+                    symptomFlags = ""
+                )
+            }
+            UserActionTracker.track(ActionType.HAND_CHECK_COMPLETED, "MainScreen", "result=pass")
         }
     }
 

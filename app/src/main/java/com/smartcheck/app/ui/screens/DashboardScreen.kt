@@ -73,7 +73,7 @@ fun DashboardScreen(
     val textMain = Color(0xFF1E293B)
     val textMuted = Color(0xFF64748B)
 
-    val displayName = if (canteenName.isBlank()) "某某" else canteenName
+    val displayName = if (canteenName.isBlank()) "紫马科技" else canteenName
     val userName = if (adminName.isBlank()) "超级管理员" else adminName
 
     Box(modifier = Modifier.fillMaxSize().background(bgColor)) {

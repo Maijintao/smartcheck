@@ -145,7 +145,7 @@ fun AdminLoginScreen(
                 ) {
                     Column {
                         Text(
-                            text = if (canteenName.isBlank()) "某某智能晨检" else canteenName,
+                            text = if (canteenName.isBlank()) "紫马晨检仪" else canteenName,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White

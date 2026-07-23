@@ -123,12 +123,12 @@ class ApiService @Inject constructor(
                         handleUploadHealthCertPhoto(call)
                     }
 
-                    delete("/{employeeId}") {
-                        handleDeleteEmployee(call)
-                    }
-
                     delete("/clear-all") {
                         handleClearAllEmployees(call)
+                    }
+
+                    delete("/{employeeId}") {
+                        handleDeleteEmployee(call)
                     }
                 }
 

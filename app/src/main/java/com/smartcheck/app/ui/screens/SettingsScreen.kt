@@ -633,7 +633,7 @@ fun SettingsScreen(
                     )
                     SettingsItem(
                         title = "食堂名称",
-                        subtitle = if (canteenName.isBlank()) "某某" else canteenName,
+                        subtitle = if (canteenName.isBlank()) "紫马科技" else canteenName,
                         trailing = {
                             PillButton(
                                 text = "修改",
