@@ -715,7 +715,8 @@ class MainViewModel @Inject constructor(
 
         // 允许在任何状态下提交（只要有手心手背照片）
         // 根据检查结果决定是否通过
-        val isPassed = state.state == CheckState.ALL_PASS
+        // 防御性校验：必须确实完成过手心+手背的有效检测，才允许判为通过（避免空结果被当作正常）
+        val isPassed = state.state == CheckState.ALL_PASS && state.palmChecked && state.backChecked
         // 体温：只看体温阶段是否异常，手部异常不影响体温判定
         val isTempNormal = state.state != CheckState.TEMP_FAIL
 
@@ -821,6 +822,7 @@ class MainViewModel @Inject constructor(
                 handPalmFrameWidth = null,
                 handPalmFrameHeight = null,
                 palmHasIssue = false,
+                palmChecked = false,
                 handHasIssue = it.backHasIssue,
                 handDetectionResults = if (it.backHasIssue) it.handDetectionResults else emptyList()
             )
@@ -849,6 +851,7 @@ class MainViewModel @Inject constructor(
                 handBackFrameWidth = null,
                 handBackFrameHeight = null,
                 backHasIssue = false,
+                backChecked = false,
                 handHasIssue = it.palmHasIssue,
                 handDetectionResults = if (it.palmHasIssue) it.handDetectionResults else emptyList()
             )
@@ -874,7 +877,9 @@ class MainViewModel @Inject constructor(
                 handPalmPath = null,
                 handBackPath = null,
                 handPalmInfos = emptyList(),
-                handBackInfos = emptyList()
+                handBackInfos = emptyList(),
+                palmChecked = false,
+                backChecked = false
             )
         }
 
@@ -1200,16 +1205,16 @@ class MainViewModel @Inject constructor(
                     handHasIssue = true
                 )
             }
-        } else {
+        } else if (infos.isNotEmpty()) {
+            // 仅当本帧确实检测到手才视为有效：空结果不代表「正常」，不得清除标记/置完成位
             hardwareRepository.beep("success")
-            // 检测通过，清除手掌异常标记
-            if (isRetaking) {
-                _uiState.update {
-                    it.copy(
-                        palmHasIssue = false,
-                        handHasIssue = it.backHasIssue
-                    )
-                }
+            // 检测通过，清除手掌异常标记并标记本侧已完成有效检测
+            _uiState.update {
+                it.copy(
+                    palmHasIssue = false,
+                    palmChecked = true,
+                    handHasIssue = it.backHasIssue
+                )
             }
         }
         if (currentPalmBitmap == null) {
@@ -1276,16 +1281,16 @@ class MainViewModel @Inject constructor(
                     handDetectionResults = if (issues.isNotEmpty()) issues else it.handDetectionResults,
                 )
             }
-        } else {
+        } else if (infos.isNotEmpty()) {
+            // 仅当本帧确实检测到手才视为有效：空结果不代表「正常」，不得清除标记/置完成位
             hardwareRepository.beep("success")
-            // 检测通过，清除手背异常标记
-            if (isRetaking) {
-                _uiState.update {
-                    it.copy(
-                        backHasIssue = false,
-                        handHasIssue = it.palmHasIssue
-                    )
-                }
+            // 检测通过，清除手背异常标记并标记本侧已完成有效检测
+            _uiState.update {
+                it.copy(
+                    backHasIssue = false,
+                    backChecked = true,
+                    handHasIssue = it.palmHasIssue
+                )
             }
         }
         if (currentBackBitmap == null) {
@@ -1340,10 +1345,21 @@ class MainViewModel @Inject constructor(
 
     /**
      * 复检后评估手部整体状态
-     * 手掌和手背都无异常 → 通过；任一有异常 → SYMPTOM_CHECKING
+     * 手掌和手背都已完成有效检测且无异常 → 通过；任一有异常 → SYMPTOM_CHECKING；
+     * 任一侧尚未完成有效检测 → 回到该侧继续检测（空结果不允许判通过）
      */
     private fun evaluateHandStateAfterRetake() {
         val state = _uiState.value
+        // 完成度校验：任一侧未完成有效检测（含重拍打断流程、空结果）时，回到该侧重新检测
+        if (!state.palmChecked) {
+            resumeHandPalmCheck()
+            return
+        }
+        if (!state.backChecked) {
+            resumeHandBackCheck()
+            return
+        }
+
         val anyIssue = state.palmHasIssue || state.backHasIssue
         if (anyIssue) {
             _uiState.update {
@@ -1369,6 +1385,42 @@ class MainViewModel @Inject constructor(
             }
             UserActionTracker.track(ActionType.HAND_CHECK_COMPLETED, "MainScreen", "result=pass")
         }
+    }
+
+    /**
+     * 复检模式下回到手心检测（保留手背已完成状态，不重置 isRetaking）
+     */
+    private fun resumeHandPalmCheck() {
+        isRetaking = true
+        handOkFrames = 0
+        handStepStartAt = System.currentTimeMillis()
+        handCooldownJob?.cancel()
+        ensureHandLightOn()
+        _uiState.update {
+            it.copy(
+                state = CheckState.HAND_PALM_CHECKING,
+                message = "请同时伸出两只手心"
+            )
+        }
+        voiceService.speak("请同时伸出两只手心")
+    }
+
+    /**
+     * 复检模式下回到手背检测（保留手心已完成状态，不重置 isRetaking）
+     */
+    private fun resumeHandBackCheck() {
+        isRetaking = true
+        handOkFrames = 0
+        handStepStartAt = System.currentTimeMillis()
+        handCooldownJob?.cancel()
+        ensureHandLightOn()
+        _uiState.update {
+            it.copy(
+                state = CheckState.HAND_BACK_CHECKING,
+                message = "请同时伸出两只手背"
+            )
+        }
+        voiceService.speak("请同时伸出两只手背")
     }
 
     private fun startAutoSubmitCountdown() {

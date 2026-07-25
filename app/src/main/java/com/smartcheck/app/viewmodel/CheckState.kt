@@ -54,6 +54,10 @@ data class UiState(
     val handHasIssue: Boolean = false,
     val palmHasIssue: Boolean = false,
     val backHasIssue: Boolean = false,
+    // 手心/手背是否已真实完成一次有效检测（拍到合格双手并保存照片）
+    // 用于区分「未检测」与「检测正常」，避免空结果被默认判为通过
+    val palmChecked: Boolean = false,
+    val backChecked: Boolean = false,
     val submittedSymptoms: List<String> = emptyList(),
     val showDuplicateCheckDialog: Boolean = false,
     
