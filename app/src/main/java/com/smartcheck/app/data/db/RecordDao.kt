@@ -51,6 +51,9 @@ interface RecordDao {
     @Query("SELECT * FROM check_records WHERE isUploaded = 0 ORDER BY checkTime ASC")
     suspend fun getUnuploadedRecords(): List<RecordEntity>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM check_records WHERE isUploaded = 0 LIMIT 1)")
+    suspend fun hasUnuploadedRecords(): Boolean
+
     @Query("UPDATE check_records SET isUploaded = 1 WHERE id = :recordId")
     suspend fun markAsUploaded(recordId: Long)
 }

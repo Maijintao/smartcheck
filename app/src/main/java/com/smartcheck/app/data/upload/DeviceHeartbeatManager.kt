@@ -28,6 +28,7 @@ class DeviceHeartbeatManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val httpClient: HttpClient,
     private val settingsRepository: SettingsRepository,
+    private val pendingUploadManager: PendingUploadManager,
     private val appScope: CoroutineScope
 ) {
     companion object {
@@ -196,6 +197,7 @@ class DeviceHeartbeatManager @Inject constructor(
         }
 
         val url = "$platformUrl$HEARTBEAT_ENDPOINT"
+        val hadPreviousHeartbeat = lastHeartbeatAt > 0L
         lastHeartbeatAt = System.currentTimeMillis()
 
         try {
@@ -206,8 +208,15 @@ class DeviceHeartbeatManager @Inject constructor(
             if (response.status.isSuccess()) {
                 val body = response.body<DeviceHeartbeatResponse>()
                 if (body.code == 200) {
+                    // 平台从断联恢复（上一拍失败、本拍成功）时，立即补发积压的离线记录，
+                    // 无需等待周期重试，实现平台恢复秒级响应
+                    val wasDisconnected = hadPreviousHeartbeat && !lastHeartbeatSuccess
                     lastHeartbeatSuccess = true
                     Timber.d("[Heartbeat] SUCCESS: ${body.message}")
+                    if (wasDisconnected) {
+                        Timber.d("[Heartbeat] Platform recovered, triggering pending uploads")
+                        pendingUploadManager.enqueue(0L)
+                    }
                 } else {
                     lastHeartbeatSuccess = false
                     Timber.w("[Heartbeat] Platform error: code=${body.code}, message=${body.message}")

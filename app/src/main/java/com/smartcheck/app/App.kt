@@ -13,6 +13,7 @@ import com.smartcheck.app.data.sync.SyncScheduler
 import com.smartcheck.app.data.upload.DeviceHeartbeatManager
 import com.smartcheck.app.data.upload.NetworkMonitor
 import com.smartcheck.app.data.upload.PendingUploadManager
+import com.smartcheck.app.data.upload.RecordUploadRetryScheduler
 import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.utils.UsbCameraHelper
 import com.smartcheck.sdk.HandDetector
@@ -42,6 +43,9 @@ class App : Application(), CameraXConfig.Provider {
 
     @Inject
     lateinit var deviceHeartbeatManager: DeviceHeartbeatManager
+
+    @Inject
+    lateinit var recordUploadRetryScheduler: RecordUploadRetryScheduler
 
     @Inject
     lateinit var employeeSyncEngine: EmployeeSyncEngine
@@ -84,6 +88,9 @@ class App : Application(), CameraXConfig.Provider {
 
         // 启动设备心跳管理器（平台保活）
         startDeviceHeartbeat()
+
+        // 启动晨检记录重试调度器（平台断联恢复后自动重发）
+        startRecordUploadRetry()
 
         // 启动员工同步引擎
         startEmployeeSync()
@@ -232,6 +239,29 @@ class App : Application(), CameraXConfig.Provider {
             }, 5000)
         } catch (e: Exception) {
             Timber.e(e, "Failed to start DeviceHeartbeatManager")
+        }
+    }
+
+    private fun startRecordUploadRetry() {
+        try {
+            android.os.Handler(mainLooper).postDelayed({
+                if (::recordUploadRetryScheduler.isInitialized) {
+                    recordUploadRetryScheduler.start()
+                    Timber.i("RecordUploadRetryScheduler started")
+                } else {
+                    Timber.w("RecordUploadRetryScheduler not initialized yet, will retry...")
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (::recordUploadRetryScheduler.isInitialized) {
+                            recordUploadRetryScheduler.start()
+                            Timber.i("RecordUploadRetryScheduler started on retry")
+                        } else {
+                            Timber.e("RecordUploadRetryScheduler failed to initialize")
+                        }
+                    }, 3000)
+                }
+            }, 8000)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start RecordUploadRetryScheduler")
         }
     }
 

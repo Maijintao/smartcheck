@@ -92,15 +92,23 @@ class CloudRecordService @Inject constructor(
                         Result.success(responseBody)
                     } else {
                         Timber.e("=== Platform Upload FAILED: ${responseBody.message} ===")
-                        Result.failure(Exception(responseBody.message))
+                        if (responseBody.code >= 500) {
+                            Result.failure(PlatformUnavailableException("平台错误 ${responseBody.code}: ${responseBody.message}"))
+                        } else {
+                            Result.failure(Exception(responseBody.message))
+                        }
                     }
                 } else {
                     Timber.e("=== Platform Upload HTTP ERROR: ${response.status} ===")
-                    Result.failure(Exception("HTTP ${response.status}"))
+                    if (response.status.value >= 500) {
+                        Result.failure(PlatformUnavailableException("HTTP ${response.status}"))
+                    } else {
+                        Result.failure(Exception("HTTP ${response.status}"))
+                    }
                 }
             } catch (e: java.util.concurrent.CancellationException) {
                 Timber.w("Platform upload cancelled")
-                Result.failure(e)
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "=== Platform Upload EXCEPTION ===")
                 Result.failure(e)
@@ -177,3 +185,8 @@ class CloudRecordService @Inject constructor(
         }
     }
 }
+
+/**
+ * 平台服务暂时不可用（HTTP/业务码 5xx），用于通知上传队列提前结束本轮并稍后重试。
+ */
+class PlatformUnavailableException(message: String) : Exception(message)
