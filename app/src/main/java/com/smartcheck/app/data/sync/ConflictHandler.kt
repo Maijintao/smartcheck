@@ -5,6 +5,7 @@ import com.smartcheck.app.api.model.toDomain
 import com.smartcheck.app.data.db.SyncOutboxDao
 import com.smartcheck.app.data.db.UserDao
 import com.smartcheck.app.domain.model.User
+import com.smartcheck.app.domain.model.toDomain as entityToDomain
 import com.smartcheck.app.domain.model.toEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,7 +45,7 @@ class ConflictHandler @Inject constructor(
                     employeeId = localEntity.employeeId,
                     localVersion = localEntity.platformVersion,
                     remoteVersion = remoteData?.version ?: 0,
-                    localEmployee = localEntity.toDomain(),
+                    localEmployee = localEntity.entityToDomain(),
                     remoteEmployee = remoteData?.employee,
                     remoteDeleted = remoteData?.deleted ?: false
                 )
@@ -115,7 +116,7 @@ class ConflictHandler @Inject constructor(
             // 重新从 DB 获取最新实体（包含更新后的 platformVersion）
             val updatedEntity = userDao.getUserByEmployeeId(employeeId)
                 ?: return@withContext Result.failure(Exception("本地员工不存在: $employeeId"))
-            val user = updatedEntity.toDomain()
+            val user = updatedEntity.entityToDomain()
             syncRepo.updateLocal(
                 user,
                 faceImagePath = localEntity.faceImagePath?.takeIf { it.isNotBlank() },
@@ -142,7 +143,3 @@ data class ConflictInfo(
     val remoteEmployee: PlatformEmployee?,
     val remoteDeleted: Boolean
 )
-
-// 辅助：UserEntity.toDomain()
-private fun com.smartcheck.app.data.db.UserEntity.toDomain(): User =
-    com.smartcheck.app.domain.model.toDomain(this)

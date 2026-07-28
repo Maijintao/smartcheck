@@ -130,9 +130,7 @@ class EmployeeSyncEngine @Inject constructor(
 
         // 逐条应用快照员工
         for (platformEmp in snapshot.employees) {
-            val entity = platformEmp.toDomain().let { user ->
-                com.smartcheck.app.domain.model.toEntity(user)
-            }
+            val entity = platformEmp.toEntity()
             syncRepo.applyRemoteUpsert(entity)
         }
 
@@ -345,9 +343,7 @@ class EmployeeSyncEngine @Inject constructor(
         when (change.type) {
             SyncOperationType.UPSERT -> {
                 val platformEmp = change.employee ?: return
-                val entity = platformEmp.toDomain().let { user ->
-                    com.smartcheck.app.domain.model.toEntity(user)
-                }
+                val entity = platformEmp.toEntity()
                 syncRepo.applyRemoteUpsert(entity)
             }
             SyncOperationType.DELETE -> {

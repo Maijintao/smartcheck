@@ -4,6 +4,7 @@ import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.repository.SettingsRepository
 import io.ktor.client.*
 import io.ktor.client.call.*
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*

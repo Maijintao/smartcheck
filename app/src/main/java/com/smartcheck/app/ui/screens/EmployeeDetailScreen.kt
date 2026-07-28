@@ -52,8 +52,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -251,7 +254,7 @@ fun EmployeeDetailScreen(
                                     .background(borderColor)
                             )
 
-                            FormRow(label = "姓名 *") {
+                            FormRow(label = "姓名", required = true) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -259,7 +262,7 @@ fun EmployeeDetailScreen(
                     singleLine = true
                 )
             }
-            FormRow(label = "编号 *") {
+            FormRow(label = "编号", required = true) {
                 OutlinedTextField(
                     value = employeeId,
                     onValueChange = { employeeId = it },
@@ -336,7 +339,7 @@ fun EmployeeDetailScreen(
 
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 CaptureBox(
-                                    title = "录入人脸 *",
+                                    title = "录入人脸",
                                     subtitle = "点击调用摄像头",
                                     bitmap = faceBitmap,
                                     onClick = { showFaceCamera = true },
@@ -344,10 +347,11 @@ fun EmployeeDetailScreen(
                                     primaryLight = primaryLight,
                                     inputBg = inputBg,
                                     borderColor = Color(0xFFCBD5E1),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    required = true
                                 )
                                 CaptureBox(
-                                    title = "健康证拍照 *",
+                                    title = "健康证拍照",
                                     subtitle = "拍摄实体证件",
                                     bitmap = certBitmap,
                                     onClick = { showCertCamera = true },
@@ -355,11 +359,12 @@ fun EmployeeDetailScreen(
                                     primaryLight = primaryLight,
                                     inputBg = inputBg,
                                     borderColor = Color(0xFFCBD5E1),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    required = true
                                 )
                             }
 
-                            FormRow(label = "健康证起始日期 *") {
+                            FormRow(label = "健康证起始日期", required = true) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -375,7 +380,7 @@ fun EmployeeDetailScreen(
                     )
                 }
             }
-            FormRow(label = "健康证到期日期 *") {
+            FormRow(label = "健康证到期日期", required = true) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -507,19 +512,39 @@ fun EmployeeDetailScreen(
 }
 
 @Composable
-private fun FormRow(label: String, content: @Composable () -> Unit) {
+private fun FormRow(label: String, required: Boolean = false, content: @Composable () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            color = Color(0xFF64748B),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        RequiredLabel(label = label, required = required)
         Spacer(modifier = Modifier.height(8.dp))
         content()
     }
+}
+
+@Composable
+private fun RequiredLabel(label: String, required: Boolean) {
+    val text = buildAnnotatedString {
+        append(label)
+        if (required) {
+            append(" ")
+            withStyle(
+                style = SpanStyle(
+                    color = Color(0xFFE53935),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            ) {
+                append("*")
+            }
+        }
+    }
+    Text(
+        text = text,
+        color = Color(0xFF64748B),
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable
@@ -532,20 +557,14 @@ private fun CaptureBox(
     primaryLight: Color,
     inputBg: Color,
     borderColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    required: Boolean = false
 ) {
     val shape = RoundedCornerShape(16.dp)
     val isFace = title.contains("人脸")
 
     Column(modifier = modifier) {
-        Text(
-            text = title,
-            color = Color(0xFF64748B),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        RequiredLabel(label = title, required = required)
         Spacer(modifier = Modifier.height(8.dp))
 
         Box(

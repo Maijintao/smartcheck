@@ -2,7 +2,7 @@ package com.smartcheck.app.api.model
 
 import com.smartcheck.app.data.db.UserEntity
 import com.smartcheck.app.domain.model.User
-import com.smartcheck.app.domain.model.toDomain
+import com.smartcheck.app.domain.model.toEntity as userToEntity
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -38,7 +38,7 @@ fun PlatformEmployee.toDomain(): User = User(
 )
 
 /** PlatformEmployee → UserEntity */
-fun PlatformEmployee.toEntity(): UserEntity = toDomain().toEntity()
+fun PlatformEmployee.toEntity(): UserEntity = toDomain().userToEntity()
 
 // ==================== 本地 → 上传 ====================
 

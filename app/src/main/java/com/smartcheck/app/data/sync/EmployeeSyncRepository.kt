@@ -1,6 +1,7 @@
 package com.smartcheck.app.data.sync
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.db.*
 import com.smartcheck.app.domain.model.User
