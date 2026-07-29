@@ -29,6 +29,9 @@ class SettingsRepository @Inject constructor(
     private val _loginTitle = MutableStateFlow(prefs.getString(KEY_LOGIN_TITLE, "") ?: "")
     val loginTitle: StateFlow<String> = _loginTitle.asStateFlow()
 
+    private val _homeTitle = MutableStateFlow(prefs.getString(KEY_HOME_TITLE, "") ?: "")
+    val homeTitle: StateFlow<String> = _homeTitle.asStateFlow()
+
     private val _loginBackground = MutableStateFlow(prefs.getString(KEY_LOGIN_BG, "") ?: "")
     val loginBackground: StateFlow<String> = _loginBackground.asStateFlow()
 
@@ -73,6 +76,11 @@ class SettingsRepository @Inject constructor(
     fun setLoginTitle(value: String) {
         prefs.edit().putString(KEY_LOGIN_TITLE, value).apply()
         _loginTitle.value = value
+    }
+
+    fun setHomeTitle(value: String) {
+        prefs.edit().putString(KEY_HOME_TITLE, value).apply()
+        _homeTitle.value = value
     }
 
     fun setLoginBackground(value: String) {
@@ -140,6 +148,7 @@ class SettingsRepository @Inject constructor(
         private const val KEY_ACCOUNT = "admin_account"
         private const val KEY_CANTEEN_NAME = "canteen_name"
         private const val KEY_LOGIN_TITLE = "login_title"
+        private const val KEY_HOME_TITLE = "home_title"
         private const val KEY_LOGIN_BG = "login_background"
         private const val KEY_ADMIN_AVATAR = "admin_avatar"
         private const val KEY_DEVICE_SN = "device_sn"

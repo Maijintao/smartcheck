@@ -93,6 +93,7 @@ fun SettingsScreen(
     val account by viewModel.account.collectAsState()
     val canteenName by viewModel.canteenName.collectAsState()
     val loginTitle by viewModel.loginTitle.collectAsState()
+    val homeTitle by viewModel.homeTitle.collectAsState()
     val loginBackground by viewModel.loginBackground.collectAsState()
     val adminAvatar by viewModel.adminAvatar.collectAsState()
     val voiceEnabled by viewModel.voiceEnabled.collectAsState()
@@ -633,7 +634,7 @@ fun SettingsScreen(
                     )
                     SettingsItem(
                         title = "食堂名称",
-                        subtitle = if (canteenName.isBlank()) "紫马科技" else canteenName,
+                        subtitle = if (canteenName.isBlank()) "未设置" else canteenName,
                         trailing = {
                             PillButton(
                                 text = "修改",
@@ -763,8 +764,31 @@ fun SettingsScreen(
                 SettingsSectionTitle(title = "界面与个性化", textMuted = textMuted)
                 SettingsCard {
                     SettingsItem(
+                        title = "主页名称",
+                        subtitle = homeTitle.ifBlank { "智能晨检终端" },
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = {
+                                    openEdit("主页名称", homeTitle) {
+                                        viewModel.setHomeTitle(it.trim())
+                                    }
+                                }
+                            )
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
                         title = "登录页标题",
-                        subtitle = if (loginTitle.isBlank()) "欢迎使用智能晨检仪" else loginTitle,
+                        subtitle = if (loginTitle.isBlank()) "欢迎使用智能晨检终端" else loginTitle,
                         trailing = {
                             PillButton(
                                 text = "修改",
@@ -954,9 +978,14 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-                    if (dialogLabel == "登录页标题") {
+                    if (dialogLabel == "登录页标题" || dialogLabel == "主页名称") {
+                        val fallback = if (dialogLabel == "主页名称") {
+                            "智能晨检终端"
+                        } else {
+                            "欢迎使用智能晨检终端"
+                        }
                         Text(
-                            text = "预览：${dialogValue.ifBlank { "欢迎使用智能晨检仪" }}",
+                            text = "预览：${dialogValue.ifBlank { fallback }}",
                             fontSize = Dimens.TextSizeSmall,
                             color = Color(0xFF6B7280)
                         )

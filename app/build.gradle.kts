@@ -23,8 +23,8 @@ android {
         applicationId = "com.smartcheck.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "1.0.15"
+        versionCode = 19
+        versionName = "1.0.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -70,6 +70,15 @@ android {
 
         jniLibs {
             pickFirsts += setOf("**/libc++_shared.so")
+        }
+    }
+
+    applicationVariants.all {
+        val variantName = name
+        val variantVersionName = versionName
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "morning-check-terminal-$variantVersionName-$variantName.apk"
         }
     }
 }

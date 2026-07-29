@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,12 +51,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.smartcheck.app.utils.DeviceAuth
+import com.smartcheck.app.utils.DeviceInfo
 import com.smartcheck.app.viewmodel.SettingsViewModel
 import com.smartcheck.app.viewmodel.DashboardViewModel
 import com.smartcheck.app.viewmodel.TodayCheckSummary
@@ -71,9 +75,13 @@ fun DashboardScreen(
     dashboardViewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val canteenName by settingsViewModel.canteenName.collectAsState()
+    val homeTitle by settingsViewModel.homeTitle.collectAsState()
+    val deviceSn by settingsViewModel.deviceSn.collectAsState()
+    val deviceId by settingsViewModel.deviceId.collectAsState()
     val adminAvatar by settingsViewModel.adminAvatar.collectAsState()
     val adminName by settingsViewModel.adminName.collectAsState()
     val todaySummary by dashboardViewModel.todaySummary.collectAsState()
+    val context = LocalContext.current
 
     val primaryBlue = Color(0xFF2563EB)
     val primaryLight = Color(0xFFEFF6FF)
@@ -81,7 +89,12 @@ fun DashboardScreen(
     val textMain = Color(0xFF1E293B)
     val textMuted = Color(0xFF64748B)
 
-    val displayName = if (canteenName.isBlank()) "紫马科技" else canteenName
+    val displayName = if (canteenName.isBlank()) "晨检点" else canteenName
+    val displayHomeTitle = homeTitle.ifBlank { "智能晨检终端" }
+    val fallbackDeviceCode = remember(context) {
+        DeviceAuth.getCurrentDeviceMac() ?: DeviceInfo.getDeviceId(context)
+    }
+    val displayDeviceCode = deviceSn.ifBlank { deviceId.ifBlank { fallbackDeviceCode } }
     val userName = if (adminName.isBlank()) "超级管理员" else adminName
 
     Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
@@ -95,6 +108,8 @@ fun DashboardScreen(
                 textMain = textMain,
                 textMuted = textMuted,
                 locationTitle = displayName,
+                appTitle = displayHomeTitle,
+                deviceCode = displayDeviceCode,
                 userName = userName,
                 adminAvatar = adminAvatar,
                 onSettingsClick = onNavigateSettings,
@@ -128,6 +143,8 @@ private fun SidebarPanel(
     textMain: Color,
     textMuted: Color,
     locationTitle: String,
+    appTitle: String,
+    deviceCode: String,
     userName: String,
     adminAvatar: String,
     onSettingsClick: () -> Unit,
@@ -175,9 +192,17 @@ private fun SidebarPanel(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "智能晨检终端",
+                        text = appTitle,
                         fontSize = 13.sp,
                         color = textMuted
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "设备编码：$deviceCode",
+                        fontSize = 12.sp,
+                        color = textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

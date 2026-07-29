@@ -45,6 +45,7 @@ class SettingsViewModel @Inject constructor(
     
     val canteenName: StateFlow<String> = settingsRepository.canteenName
     val loginTitle: StateFlow<String> = settingsRepository.loginTitle
+    val homeTitle: StateFlow<String> = settingsRepository.homeTitle
     val loginBackground: StateFlow<String> = settingsRepository.loginBackground
     val adminAvatar: StateFlow<String> = settingsRepository.adminAvatar
     val deviceSn: StateFlow<String> = settingsRepository.deviceSn
@@ -62,6 +63,8 @@ class SettingsViewModel @Inject constructor(
     fun setCanteenName(value: String) = settingsRepository.setCanteenName(value)
 
     fun setLoginTitle(value: String) = settingsRepository.setLoginTitle(value)
+
+    fun setHomeTitle(value: String) = settingsRepository.setHomeTitle(value)
 
     fun setLoginBackground(value: String) = settingsRepository.setLoginBackground(value)
 

@@ -49,7 +49,7 @@ fun AdminLoginScreen(
 
     val storedAccount by viewModel.account.collectAsState()
     val loginTitle by settingsViewModel.loginTitle.collectAsState()
-    val canteenName by settingsViewModel.canteenName.collectAsState()
+    val homeTitle by settingsViewModel.homeTitle.collectAsState()
     val context = LocalContext.current
 
     val primaryColor = Color(0xFF2563EB)
@@ -88,7 +88,7 @@ fun AdminLoginScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // 左侧品牌区域
+            // 左侧展示区域
             Box(
                 modifier = Modifier
                     .weight(1.2f)
@@ -145,7 +145,7 @@ fun AdminLoginScreen(
                 ) {
                     Column {
                         Text(
-                            text = if (canteenName.isBlank()) "紫马晨检仪" else canteenName,
+                            text = homeTitle.ifBlank { "智能晨检终端" },
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -181,7 +181,7 @@ fun AdminLoginScreen(
                     horizontalAlignment = Alignment.Start
                 ) {
                     Text(
-                        text = "欢迎登录",
+                        text = loginTitle.ifBlank { "欢迎使用智能晨检终端" },
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = textMain

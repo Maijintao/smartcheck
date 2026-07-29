@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -84,6 +85,8 @@ import com.smartcheck.app.ui.components.DualCameraPreview
 import com.smartcheck.app.ui.components.FaceOverlay
 import com.smartcheck.app.ui.components.HandOverlay
 import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.utils.DeviceAuth
+import com.smartcheck.app.utils.DeviceInfo
 import com.smartcheck.app.viewmodel.CheckState
 import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.viewmodel.MainViewModel
@@ -105,11 +108,21 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val settingsViewModel: SettingsViewModel = hiltViewModel()
+    val canteenName by settingsViewModel.canteenName.collectAsState()
+    val homeTitle by settingsViewModel.homeTitle.collectAsState()
+    val deviceSn by settingsViewModel.deviceSn.collectAsState()
+    val deviceId by settingsViewModel.deviceId.collectAsState()
     val adminName by settingsViewModel.adminName.collectAsState()
     val adminAvatar by settingsViewModel.adminAvatar.collectAsState()
     val handInfos by viewModel.handDetectionState.collectAsState()
     val faceBoxes by viewModel.faceDetectionBoxes.collectAsState()
     val context = LocalContext.current
+    val fallbackDeviceCode = remember(context) {
+        DeviceAuth.getCurrentDeviceMac() ?: DeviceInfo.getDeviceId(context)
+    }
+    val displayHomeTitle = homeTitle.ifBlank { "智能晨检终端" }
+    val displayCanteenName = canteenName.ifBlank { "晨检点" }
+    val displayDeviceCode = deviceSn.ifBlank { deviceId.ifBlank { fallbackDeviceCode } }
 
     var lastFrameWidth by remember { mutableIntStateOf(0) }
     var lastFrameHeight by remember { mutableIntStateOf(0) }
@@ -538,6 +551,59 @@ fun HomeScreen(
                     val context = LocalContext.current
                     val faceFile = FileUtil.getRecordImageFile(context, uiState.faceImagePath)?.takeIf { it.exists() }
                     val faceModel = faceFile ?: faceSnapshot
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = displayHomeTitle,
+                                color = textMain,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = displayCanteenName,
+                                color = textMuted,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(18.dp))
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "设备编码",
+                                color = textMuted,
+                                fontSize = 12.sp,
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = displayDeviceCode,
+                                color = textMain,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(borderColor)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // 头像 - 蓝色圆形背景
