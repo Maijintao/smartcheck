@@ -41,17 +41,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
 import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.ui.components.RecordDetailDialog
 import com.smartcheck.app.ui.theme.Dimens
 import com.smartcheck.app.ui.util.toHandStatusChineseLabel
 import com.smartcheck.app.ui.util.toHealthCertChineseLabel
 import com.smartcheck.app.ui.util.toSymptomChineseLabels
+import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.viewmodel.RecordsViewModel
 import com.smartcheck.app.viewmodel.RecordsViewModel.TimeFilter
 import java.text.SimpleDateFormat
@@ -242,7 +248,7 @@ fun AdminScreen(
                 .padding(horizontal = 32.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize().horizontalScroll(tableScrollState)) {
-                Column(modifier = Modifier.width(1220.dp).fillMaxHeight()) {
+                Column(modifier = Modifier.width(1340.dp).fillMaxHeight()) {
                     TableHeader()
                     if (records.isEmpty()) {
                         Box(
@@ -321,7 +327,7 @@ private fun TableHeader() {
             .padding(vertical = 12.dp, horizontal = Dimens.PaddingNormal),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HeaderCell(text = "日期", width = 180.dp)
+        HeaderCell(text = "晨检时间", width = 180.dp)
         HeaderCell(text = "姓名", width = 120.dp)
         HeaderCell(text = "工号", width = 110.dp)
         HeaderCell(text = "体温", width = 90.dp)
@@ -329,6 +335,7 @@ private fun TableHeader() {
         HeaderCell(text = "手部情况", width = 120.dp)
         HeaderCell(text = "健康证提示", width = 150.dp)
         HeaderCell(text = "其他身体不适", width = 180.dp)
+        HeaderCell(text = "晨检图片", width = 120.dp)
         HeaderCell(text = "操作", width = 140.dp)
     }
 }
@@ -382,6 +389,7 @@ private fun RecordTableRow(
         BodyCell(text = record.handStatus.toHandStatusChineseLabel(), width = 120.dp, color = textColor)
         BodyCell(text = certLabel, width = 150.dp, color = textColor)
         BodyCell(text = record.symptomFlags.toSymptomChineseLabels(), width = 180.dp, color = textColor)
+        MorningCheckImageCell(record = record, width = 120.dp)
         Row(
             modifier = Modifier.width(140.dp),
             horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
@@ -399,6 +407,71 @@ private fun RecordTableRow(
                 fontSize = 16.sp,
                 modifier = Modifier.clickable(onClick = onEdit)
             )
+        }
+    }
+}
+
+@Composable
+private fun MorningCheckImageCell(record: RecordEntity, width: Dp) {
+    val context = LocalContext.current
+    val imageFile = remember(context, record.isPassed, record.faceImagePath) {
+        if (record.isPassed) {
+            FileUtil.getRecordImageFile(context, record.faceImagePath)?.takeIf { it.exists() }
+        } else {
+            null
+        }
+    }
+
+    Box(
+        modifier = Modifier.width(width),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        if (imageFile == null) {
+            Text(
+                text = "暂无图片",
+                color = Color(0xFF94A3B8),
+                fontSize = 14.sp
+            )
+        } else {
+            val request = remember(context, imageFile) {
+                ImageRequest.Builder(context)
+                    .data(imageFile)
+                    .crossfade(true)
+                    .build()
+            }
+            SubcomposeAsyncImage(
+                model = request,
+                contentDescription = "${record.userName}的晨检图片",
+                modifier = Modifier
+                    .size(width = 80.dp, height = 56.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFFE2E8F0)),
+                contentScale = ContentScale.Crop
+            ) {
+                when (painter.state) {
+                    is coil.compose.AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                    is coil.compose.AsyncImagePainter.State.Error -> Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无图片",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                    }
+                    else -> Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "加载中",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
