@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +49,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.ui.components.RecordDetailDialog
 import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.ui.util.toHandStatusChineseLabel
+import com.smartcheck.app.ui.util.toHealthCertChineseLabel
+import com.smartcheck.app.ui.util.toSymptomChineseLabels
 import com.smartcheck.app.viewmodel.RecordsViewModel
 import com.smartcheck.app.viewmodel.RecordsViewModel.TimeFilter
 import java.text.SimpleDateFormat
@@ -148,7 +154,7 @@ fun AdminScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = success),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(text = "导出记录报表", color = Color.White, fontSize = 14.sp)
+                            Text(text = "导出记录报表", color = Color.White, fontSize = 16.sp)
                         }
                     }
                 }
@@ -166,7 +172,7 @@ fun AdminScreen(
         ) {
             // 日期筛选
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("日期：", fontSize = 15.sp, color = textMain, fontWeight = FontWeight.Medium)
+                Text("日期：", fontSize = 16.sp, color = textMain, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.width(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     timeFilterOptions.forEach { (label, filter) ->
@@ -186,7 +192,7 @@ fun AdminScreen(
 
             // 状态筛选
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("状态：", fontSize = 15.sp, color = textMain, fontWeight = FontWeight.Medium)
+                Text("状态：", fontSize = 16.sp, color = textMain, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.width(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     statusOptions.forEach { option ->
@@ -214,7 +220,7 @@ fun AdminScreen(
                     .width(240.dp)
                     .height(44.dp),
                 singleLine = true,
-                placeholder = { Text("搜索姓名/工号", fontSize = 14.sp, color = textMuted) },
+                placeholder = { Text("搜索姓名/工号", fontSize = 16.sp, color = textMuted) },
                 trailingIcon = {
                     Icon(
                         Icons.Default.Search,
@@ -223,44 +229,49 @@ fun AdminScreen(
                         modifier = Modifier.size(18.dp)
                     )
                 },
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp)
             )
         }
 
         // 表格区域
+        val tableScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
         ) {
-            TableHeader()
-            if (records.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFFF9FAFB)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "暂无记录",
-                        color = Color(0xFF6B7280),
-                        fontSize = Dimens.TextSizeNormal
-                    )
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(records) { record ->
-                        RecordTableRow(
-                            record = record,
-                            onView = {
-                                selectedRecord = record
-                            },
-                            onEdit = {
-                                onNavigateRecordDetail?.invoke(record.id)
-                            },
-                            onClick = { selectedRecord = record }
-                        )
+            Box(modifier = Modifier.fillMaxSize().horizontalScroll(tableScrollState)) {
+                Column(modifier = Modifier.width(1220.dp).fillMaxHeight()) {
+                    TableHeader()
+                    if (records.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFF9FAFB)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "暂无记录",
+                                color = Color(0xFF6B7280),
+                                fontSize = 17.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(records) { record ->
+                                RecordTableRow(
+                                    record = record,
+                                    onView = {
+                                        selectedRecord = record
+                                    },
+                                    onEdit = {
+                                        onNavigateRecordDetail?.invoke(record.id)
+                                    },
+                                    onClick = { selectedRecord = record }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -294,7 +305,7 @@ private fun FilterChip(
     ) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            fontSize = 16.sp,
             color = if (isSelected) Color.White else textMuted,
             fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
         )
@@ -312,8 +323,11 @@ private fun TableHeader() {
     ) {
         HeaderCell(text = "日期", width = 180.dp)
         HeaderCell(text = "姓名", width = 120.dp)
+        HeaderCell(text = "工号", width = 110.dp)
         HeaderCell(text = "体温", width = 90.dp)
+        HeaderCell(text = "检查结果", width = 100.dp)
         HeaderCell(text = "手部情况", width = 120.dp)
+        HeaderCell(text = "健康证提示", width = 150.dp)
         HeaderCell(text = "其他身体不适", width = 180.dp)
         HeaderCell(text = "操作", width = 140.dp)
     }
@@ -325,7 +339,7 @@ private fun HeaderCell(text: String, width: Dp) {
         text = text,
         modifier = Modifier.width(width),
         color = Color(0xFF6B7280),
-        fontSize = Dimens.TextSizeSmall,
+        fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold
     )
 }
@@ -339,10 +353,18 @@ private fun RecordTableRow(
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val tempHigh = record.temperature >= 37.3f
-    val handIssue = record.handStatus.contains("异常") || !record.isHandNormal
-    val warningRow = tempHigh || handIssue
-    val background = if (warningRow) Color(0xFFFFF1F1) else Color.White
-    val textColor = if (warningRow) MaterialTheme.colorScheme.error else Color(0xFF111827)
+    val handIssue = record.handStatus.equals("ABNORMAL", ignoreCase = true) || !record.isHandNormal
+    val certLabel = record.healthCertStatus.toHealthCertChineseLabel()
+    val background = when {
+        tempHigh || handIssue || certLabel == "已过期" -> Color(0xFFFFF1F1)
+        certLabel == "即将过期" -> Color(0xFFFFFBEB)
+        else -> Color.White
+    }
+    val textColor = when {
+        tempHigh || handIssue || certLabel == "已过期" -> MaterialTheme.colorScheme.error
+        certLabel == "即将过期" -> Color(0xFFD97706)
+        else -> Color(0xFF111827)
+    }
 
     Row(
         modifier = Modifier
@@ -354,9 +376,12 @@ private fun RecordTableRow(
     ) {
         BodyCell(text = dateFormat.format(Date(record.checkTime)), width = 180.dp, color = textColor)
         BodyCell(text = record.userName, width = 120.dp, color = textColor)
+        BodyCell(text = record.employeeId.ifBlank { "--" }, width = 110.dp, color = textColor)
         BodyCell(text = "%.1f°C".format(record.temperature), width = 90.dp, color = textColor)
-        BodyCell(text = record.handStatus.ifBlank { "--" }, width = 120.dp, color = textColor)
-        BodyCell(text = record.symptomFlags.ifBlank { "无" }, width = 180.dp, color = textColor)
+        BodyCell(text = if (record.isPassed) "通过" else "不合格", width = 100.dp, color = textColor)
+        BodyCell(text = record.handStatus.toHandStatusChineseLabel(), width = 120.dp, color = textColor)
+        BodyCell(text = certLabel, width = 150.dp, color = textColor)
+        BodyCell(text = record.symptomFlags.toSymptomChineseLabels(), width = 180.dp, color = textColor)
         Row(
             modifier = Modifier.width(140.dp),
             horizontalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal),
@@ -365,13 +390,13 @@ private fun RecordTableRow(
             Text(
                 text = "查看",
                 color = Color(0xFF2563EB),
-                fontSize = Dimens.TextSizeSmall,
+                fontSize = 16.sp,
                 modifier = Modifier.clickable(onClick = onView)
             )
             Text(
                 text = "编辑",
                 color = Color(0xFF2563EB),
-                fontSize = Dimens.TextSizeSmall,
+                fontSize = 16.sp,
                 modifier = Modifier.clickable(onClick = onEdit)
             )
         }
@@ -384,6 +409,6 @@ private fun BodyCell(text: String, width: Dp, color: Color) {
         text = text,
         modifier = Modifier.width(width),
         color = color,
-        fontSize = Dimens.TextSizeSmall
+        fontSize = 16.sp
     )
 }

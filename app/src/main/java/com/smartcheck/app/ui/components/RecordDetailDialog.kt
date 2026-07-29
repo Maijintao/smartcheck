@@ -53,6 +53,8 @@ import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.domain.model.HandStatus
 import com.smartcheck.app.domain.model.HealthCertStatus
 import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.ui.util.toChineseLabel
+import com.smartcheck.app.ui.util.toSymptomChineseLabels
 import com.smartcheck.app.utils.FileUtil
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -90,23 +92,19 @@ fun RecordDetailDialog(
     }.getOrNull()
 
     val healthBadge = when (healthStatus) {
-        HealthCertStatus.VALID -> Triple(successBg, success, "有效 (VALID)")
-        HealthCertStatus.EXPIRING_SOON -> Triple(warningBg, warning, "临期 (EXPIRING_SOON)")
-        HealthCertStatus.EXPIRED -> Triple(dangerBg, danger, "过期 (EXPIRED)")
-        null -> Triple(primaryLight, primaryBlue, if (record.healthCertStatus.isBlank()) "未知" else "未知 (${record.healthCertStatus})")
+        HealthCertStatus.VALID -> Triple(successBg, success, "有效")
+        HealthCertStatus.EXPIRING_SOON -> Triple(warningBg, warning, "即将过期")
+        HealthCertStatus.EXPIRED -> Triple(dangerBg, danger, "已过期")
+        null -> Triple(primaryLight, primaryBlue, "未知")
     }
 
-    val symptomDisplay = record.symptomFlags.ifBlank { "无" }
+    val symptomDisplay = record.symptomFlags.toSymptomChineseLabels()
 
     val handStatus = runCatching {
         HandStatus.valueOf(record.handStatus)
     }.getOrNull() ?: HandStatus.NOT_CHECKED
 
-    val handText = when (handStatus) {
-        HandStatus.NORMAL -> "合规 (NORMAL)"
-        HandStatus.ABNORMAL -> "异常 (ABNORMAL)"
-        HandStatus.NOT_CHECKED -> "未检测 (NOT_CHECKED)"
-    }
+    val handText = handStatus.toChineseLabel()
 
     val handColor = when (handStatus) {
         HandStatus.NORMAL -> success
@@ -145,7 +143,7 @@ fun RecordDetailDialog(
                             ) {
                                 Text(
                                     text = "晨检记录详情",
-                                    fontSize = 20.sp,
+                                    fontSize = 22.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = textMain,
                                     maxLines = 1,
@@ -155,7 +153,7 @@ fun RecordDetailDialog(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = "检测时间: ${dateFormat.format(Date(record.checkTime))}",
-                                        fontSize = 15.sp,
+                                        fontSize = 17.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = textMuted,
                                         maxLines = 1,
@@ -214,7 +212,7 @@ fun RecordDetailDialog(
                                         Text(
                                             text = "面部抓拍",
                                             color = textMain,
-                                            fontSize = 16.sp,
+                                            fontSize = 18.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -284,7 +282,7 @@ fun RecordDetailDialog(
                                         Text(
                                             text = "手部抓拍",
                                             color = textMain,
-                                            fontSize = 16.sp,
+                                            fontSize = 18.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -340,7 +338,7 @@ fun RecordDetailDialog(
                                                 Text(
                                                     text = "手背检测",
                                                     color = Color.White,
-                                                    fontSize = 12.sp,
+                                                    fontSize = 14.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                                 )
@@ -388,7 +386,7 @@ fun RecordDetailDialog(
                                                 Text(
                                                     text = "手心检测",
                                                     color = Color.White,
-                                                    fontSize = 12.sp,
+                                                    fontSize = 14.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                                 )
@@ -432,7 +430,7 @@ fun RecordDetailDialog(
                                             )
                                             Text(
                                                 text = tempLabel,
-                                                fontSize = 13.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = if (isTempNormal) success else danger
                                             )
@@ -446,12 +444,12 @@ fun RecordDetailDialog(
                                         }
                                         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.Top) {
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(text = "健康证状态", fontSize = 13.sp, color = textMuted)
+                                                Text(text = "健康证状态", fontSize = 15.sp, color = textMuted)
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 StatusBadge(text = healthBadge.third, bg = healthBadge.first, fg = healthBadge.second)
                                             }
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(text = "本次判定", fontSize = 13.sp, color = textMuted)
+                                                Text(text = "本次判定", fontSize = 15.sp, color = textMuted)
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 StatusBadge(text = passBadge.third, bg = passBadge.first, fg = passBadge.second)
                                             }
@@ -484,7 +482,7 @@ fun RecordDetailDialog(
                                         Text(
                                             text = "检测详情核验",
                                             color = textMain,
-                                            fontSize = 16.sp,
+                                            fontSize = 18.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -535,7 +533,7 @@ private fun InfoItem(
     Column(modifier = modifier) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             color = textMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -543,7 +541,7 @@ private fun InfoItem(
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = value,
-            fontSize = 16.sp,
+            fontSize = 18.sp,
             color = textMain,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,
@@ -562,7 +560,7 @@ private fun StatusBadge(
         Text(
             text = text,
             color = fg,
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
@@ -586,7 +584,7 @@ private fun DetailRow(
     ) {
         Text(
             text = label,
-            fontSize = 15.sp,
+            fontSize = 17.sp,
             color = Color(0xFF64748B),
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f),
@@ -596,7 +594,7 @@ private fun DetailRow(
         Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = value,
-            fontSize = 15.sp,
+            fontSize = 17.sp,
             color = valueColor,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,

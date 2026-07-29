@@ -191,7 +191,7 @@ class MorningCheckUseCase @Inject constructor(
         return when {
             remainingDays == null -> HealthCertStatus.VALID
             remainingDays < 0 -> HealthCertStatus.EXPIRED
-            remainingDays < 7 -> HealthCertStatus.EXPIRING_SOON
+            remainingDays <= 7 -> HealthCertStatus.EXPIRING_SOON
             else -> HealthCertStatus.VALID
         }
     }
@@ -283,7 +283,7 @@ class MorningCheckUseCase @Inject constructor(
         val healthCertStatus = when {
             remainingDays == null -> HealthCertStatus.VALID
             remainingDays < 0 -> HealthCertStatus.EXPIRED
-            remainingDays < 7 -> HealthCertStatus.EXPIRING_SOON
+            remainingDays <= 7 -> HealthCertStatus.EXPIRING_SOON
             else -> HealthCertStatus.VALID
         }
 
@@ -291,7 +291,7 @@ class MorningCheckUseCase @Inject constructor(
 
         if (!isAllowedToContinue) {
             speakHealthCertExpired()
-        } else if (remainingDays != null && remainingDays < 7) {
+        } else if (remainingDays != null && remainingDays <= 7) {
             speakHealthCertWarning()
         }
 

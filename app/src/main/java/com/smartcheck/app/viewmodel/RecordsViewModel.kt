@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import java.util.concurrent.TimeUnit
+import java.util.Calendar
 import javax.inject.Inject
 
 @HiltViewModel
@@ -51,7 +52,12 @@ class RecordsViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val base = when (filterState.filter) {
                     TimeFilter.TODAY -> {
-                        val start = now - TimeUnit.DAYS.toMillis(1)
+                        val start = Calendar.getInstance().apply {
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }.timeInMillis
                         recordRepository.getRecordsByTimeRange(start, now)
                     }
 

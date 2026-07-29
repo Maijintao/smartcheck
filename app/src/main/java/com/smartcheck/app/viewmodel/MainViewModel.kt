@@ -595,20 +595,17 @@ class MainViewModel @Inject constructor(
     }
     
     /**
-     * 手检通过 - 全正常情况，等待用户确认后保存记录
+     * 手检通过 - 进入健康状况问询
      */
     private fun onHandCheckPass() {
-        Timber.tag("MainViewModel").d("Hand check passed - waiting for confirmation")
+        Timber.tag("MainViewModel").d("Hand check passed - waiting for symptom questionnaire")
 
         _handDetectionState.value = emptyList()
         
-        hardwareRepository.beep("success")
-        morningCheckUseCase.speakAllPass()
-
         _uiState.update {
             it.copy(
-                state = CheckState.ALL_PASS,
-                message = "晨检通过！",
+                state = CheckState.SYMPTOM_CHECKING,
+                message = "请完成健康状况问询",
                 symptomFlags = ""
             )
         }
@@ -644,6 +641,7 @@ class MainViewModel @Inject constructor(
         val result = morningCheckUseCase.processSymptomSubmission(symptoms)
         if (result.isAllPass) {
             onAllPass(remark = "无")
+            finalizeCheckRecord()
         } else if (result.hasFever) {
             onFeverBlocked(symptoms)
         } else {
@@ -734,7 +732,7 @@ class MainViewModel @Inject constructor(
                 val healthCertStatus = when {
                     state.healthCertDaysRemaining == null -> HealthCertStatus.VALID
                     state.healthCertDaysRemaining < 0 -> HealthCertStatus.EXPIRED
-                    state.healthCertDaysRemaining < 7 -> HealthCertStatus.EXPIRING_SOON
+                    state.healthCertDaysRemaining <= 7 -> HealthCertStatus.EXPIRING_SOON
                     else -> HealthCertStatus.VALID
                 }
 
@@ -1055,7 +1053,7 @@ class MainViewModel @Inject constructor(
                 val healthCertStatus = when {
                     state.healthCertDaysRemaining == null -> HealthCertStatus.VALID
                     state.healthCertDaysRemaining < 0 -> HealthCertStatus.EXPIRED
-                    state.healthCertDaysRemaining < 7 -> HealthCertStatus.EXPIRING_SOON
+                    state.healthCertDaysRemaining <= 7 -> HealthCertStatus.EXPIRING_SOON
                     else -> HealthCertStatus.VALID
                 }
 
@@ -1122,6 +1120,9 @@ class MainViewModel @Inject constructor(
     private fun parseSymptomType(symptom: String): SymptomType? = when {
         symptom.contains("发烧") || symptom.contains("发热") -> SymptomType.FEVER
         symptom.contains("咳嗽") -> SymptomType.COUGH
+        symptom.contains("呕吐") -> SymptomType.VOMITING
+        symptom.contains("流涕") || symptom.contains("流鼻涕") -> SymptomType.RUNNY_NOSE
+        symptom.contains("皮疹") -> SymptomType.RASH
         symptom.contains("头痛") -> SymptomType.HEADACHE
         symptom.contains("疲劳") || symptom.contains("乏力") -> SymptomType.FATIGUE
         symptom.contains("咽痛") || symptom.contains("喉咙") -> SymptomType.SORE_THROAT
@@ -1339,7 +1340,13 @@ class MainViewModel @Inject constructor(
                 )
             }
         } else {
-            startAutoSubmitCountdown()
+            _uiState.update {
+                it.copy(
+                    state = CheckState.SYMPTOM_CHECKING,
+                    message = "手部检测完成，请进行健康状况问询",
+                    autoSubmitRemainingSec = null,
+                )
+            }
         }
     }
 
@@ -1371,14 +1378,13 @@ class MainViewModel @Inject constructor(
                 )
             }
         } else {
-            // 手掌手背都通过
+            // 手掌手背都通过，继续健康状况问询
             _handDetectionState.value = emptyList()
             hardwareRepository.beep("success")
-            morningCheckUseCase.speakAllPass()
             _uiState.update {
                 it.copy(
-                    state = CheckState.ALL_PASS,
-                    message = "晨检通过！",
+                    state = CheckState.SYMPTOM_CHECKING,
+                    message = "手部检测完成，请进行健康状况问询",
                     handHasIssue = false,
                     symptomFlags = ""
                 )

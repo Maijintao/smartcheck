@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -71,6 +73,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -122,7 +126,7 @@ fun HomeScreen(
     var showTransitionMask by remember { mutableStateOf(false) }
 
     var showSymptomDialog by remember { mutableStateOf(false) }
-    var symptomConfirmed by remember { mutableStateOf(false) }
+    var selectedSymptoms by remember { mutableStateOf(emptySet<String>()) }
     var autoNavigateState by remember { mutableStateOf<CheckState?>(null) }
     var cameraInitState by remember { mutableStateOf(com.smartcheck.app.ui.components.CameraInitState.Initializing) }
     var showHandFailDialog by remember { mutableStateOf(false) }
@@ -131,7 +135,7 @@ fun HomeScreen(
     LaunchedEffect(uiState.state) {
         if (uiState.state == CheckState.SYMPTOM_CHECKING) {
             showSymptomDialog = true
-            symptomConfirmed = false
+            selectedSymptoms = emptySet()
         } else {
             showSymptomDialog = false
         }
@@ -456,6 +460,36 @@ fun HomeScreen(
                         .align(Alignment.TopCenter)
                         .padding(top = Dimens.PaddingNormal)
                 )
+
+                if (onNavigateBackToDashboard != null) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(16.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onNavigateBackToDashboard),
+                        color = Color(0xFF0F172A).copy(alpha = 0.78f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Home,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "返回主页",
+                                color = Color.White,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
                 } else {
                     Box(
                         modifier = Modifier
@@ -547,7 +581,7 @@ fun HomeScreen(
                             Text(
                                 text = badgeText,
                                 color = textMuted,
-                                fontSize = 13.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -577,7 +611,7 @@ fun HomeScreen(
                                         Text(
                                             text = "读取中...",
                                             color = warning,
-                                            fontSize = 14.sp,
+                                            fontSize = 16.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -600,12 +634,36 @@ fun HomeScreen(
                             content = {
                                 val days = uiState.healthCertDaysRemaining
                                 val certText = if (days == null) "暂无数据" else formatHealthCert(days)
+                                val certColor = when {
+                                    days == null -> textMuted
+                                    days < 0 -> danger
+                                    days <= 7 -> warning
+                                    else -> success
+                                }
                                 Text(
                                     text = certText,
-                                    color = if (days != null && days < 0) danger else textMuted,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
+                                    color = certColor,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
+                                if (days != null && days <= 7) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.WarningAmber,
+                                            contentDescription = null,
+                                            tint = certColor,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = if (days < 0) "健康证已过期，请立即处理" else "健康证即将过期，请及时续办",
+                                            color = certColor,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
                             }
                         )
                     }
@@ -622,14 +680,14 @@ fun HomeScreen(
                     Text(
                         text = "手部卫生检测",
                         color = textMain,
-                        fontSize = 17.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "请依次完成手心与手背检测",
                         color = textMuted,
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -701,11 +759,15 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 18.dp)
                 ) {
-                    val canSubmit = uiState.state != CheckState.SYMPTOM_CHECKING && uiState.handPalmPath != null && uiState.handBackPath != null
+                    val canSubmit = uiState.state == CheckState.ALL_PASS &&
+                        uiState.handPalmPath != null &&
+                        uiState.handBackPath != null &&
+                        !uiState.isRecordFinalized
                     val buttonText = when {
                         uiState.isSubmitting -> "提交中..."
                         canSubmit -> "提交并上岗"
-                        else -> "检测未完成，无法提交"
+                        uiState.state == CheckState.SYMPTOM_CHECKING -> "请先完成健康状况问询"
+                        else -> "完成全部流程后自动提交"
                     }
 
                     Button(
@@ -723,7 +785,7 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = buttonText,
-                            fontSize = 16.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -738,50 +800,134 @@ fun HomeScreen(
         label = "SymptomDialog"
     ) { visible ->
         if (visible) {
-            AlertDialog(
+            Dialog(
                 onDismissRequest = { },
-                title = {
-                    Text(text = "健康询问", color = primaryDark, fontSize = Dimens.TextSizeLarge)
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingNormal)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = symptomConfirmed,
-                                onCheckedChange = { symptomConfirmed = it }
-                            )
-                            Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
-                            Text(
-                                text = "我承诺今日无腹泻、咽痛等异常症状",
-                                fontSize = Dimens.TextSizeNormal
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSymptomDialog = false
-                            if (symptomConfirmed) {
-                                viewModel.submitSymptoms(emptyList())
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFFF1F5F9),
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Surface(color = Color.White, shadowElevation = 2.dp) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 20.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "健康状况问询",
+                                        color = textMain,
+                                        fontSize = 28.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${uiState.currentUserName.ifBlank { "当前员工" }}，请选择今天出现的不适症状",
+                                        color = textMuted,
+                                        fontSize = 18.sp,
+                                    )
+                                }
+                                if (onNavigateBackToDashboard != null) {
+                                    TextButton(onClick = onNavigateBackToDashboard) {
+                                        Icon(Icons.Default.Home, contentDescription = null, tint = primaryDark)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("返回主页", color = primaryDark, fontSize = 18.sp)
+                                    }
+                                }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryDark)
-                    ) {
-                        Text(text = "确认", fontSize = Dimens.TextSizeNormal, color = Color.White)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showSymptomDialog = false
-                            viewModel.submitSymptoms(listOf("自述异常"))
                         }
-                    ) {
-                        Text(text = "有异常", fontSize = Dimens.TextSizeNormal, color = MaterialTheme.colorScheme.error)
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 56.dp, vertical = 30.dp),
+                        ) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(18.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(28.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    Text(
+                                        text = "是否有以下健康状况？",
+                                        color = textMain,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    listOf("发热", "呕吐", "咳嗽", "流涕", "腹泻", "皮疹", "乏力")
+                                        .chunked(2)
+                                        .forEach { rowSymptoms ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            ) {
+                                                rowSymptoms.forEach { symptom ->
+                                                    SymptomOptionCard(
+                                                        text = symptom,
+                                                        checked = symptom in selectedSymptoms,
+                                                        modifier = Modifier.weight(1f),
+                                                        onCheckedChange = { checked ->
+                                                            selectedSymptoms = if (checked) {
+                                                                selectedSymptoms + symptom
+                                                            } else {
+                                                                selectedSymptoms - symptom
+                                                            }
+                                                        },
+                                                    )
+                                                }
+                                                if (rowSymptoms.size == 1) {
+                                                    Spacer(modifier = Modifier.weight(1f))
+                                                }
+                                            }
+                                        }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            ) {
+                                Button(
+                                    onClick = {
+                                        showSymptomDialog = false
+                                        viewModel.submitSymptoms(emptyList())
+                                    },
+                                    modifier = Modifier.weight(1f).height(58.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = success),
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    Text("以上症状均无", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Button(
+                                    onClick = {
+                                        showSymptomDialog = false
+                                        viewModel.submitSymptoms(selectedSymptoms.toList())
+                                    },
+                                    enabled = selectedSymptoms.isNotEmpty(),
+                                    modifier = Modifier.weight(1f).height(58.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = danger),
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    Text(
+                                        text = if (selectedSymptoms.isEmpty()) "请选择不适症状" else "提交已选症状（${selectedSymptoms.size}项）",
+                                        fontSize = 19.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-            )
+            }
         }
     }
 
@@ -794,12 +940,12 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { },
                 title = {
-                    Text(text = "今日已晨检", color = primaryDark, fontSize = Dimens.TextSizeLarge)
+                    Text(text = "今日已晨检", color = primaryDark, fontSize = 22.sp)
                 },
                 text = {
                     Text(
                         text = "是否继续晨检",
-                        fontSize = Dimens.TextSizeNormal
+                        fontSize = 18.sp
                     )
                 },
                 confirmButton = {
@@ -807,14 +953,14 @@ fun HomeScreen(
                         onClick = { viewModel.continueDuplicateMorningCheck() },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryDark)
                     ) {
-                        Text(text = "继续晨检", fontSize = Dimens.TextSizeNormal, color = Color.White)
+                        Text(text = "继续晨检", fontSize = 18.sp, color = Color.White)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.cancelDuplicateMorningCheck() }) {
                         Text(
                             text = "取消",
-                            fontSize = Dimens.TextSizeNormal,
+                            fontSize = 18.sp,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -864,13 +1010,13 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { showHandFailDialog = false },
                 title = {
-                    Text(text = "发现异物/伤口", color = MaterialTheme.colorScheme.error, fontSize = Dimens.TextSizeLarge)
+                    Text(text = "发现异物/伤口", color = MaterialTheme.colorScheme.error, fontSize = 22.sp)
                 },
                 text = {
                     val issueSummary = uiState.handDetectionResults.joinToString("，")
                     Text(
                         text = if (issueSummary.isBlank()) "手部检测异常，请人工复核" else "手部检测异常：$issueSummary",
-                        fontSize = Dimens.TextSizeNormal
+                        fontSize = 18.sp
                     )
                 },
                 confirmButton = {
@@ -881,7 +1027,7 @@ fun HomeScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text(text = "确认", fontSize = Dimens.TextSizeNormal, color = Color.White)
+                        Text(text = "确认", fontSize = 18.sp, color = Color.White)
                     }
                 }
             )
@@ -896,6 +1042,39 @@ private fun Bitmap?.safeRecycle() {
             recycle()
         }
     } catch (_: Exception) {
+    }
+}
+
+@Composable
+private fun SymptomOptionCard(
+    text: String,
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val borderColor = if (checked) Color(0xFFEF4444) else Color(0xFFCBD5E1)
+    val background = if (checked) Color(0xFFFEF2F2) else Color(0xFFF8FAFC)
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(background)
+            .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = text,
+            color = Color(0xFF1E293B),
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -1308,18 +1487,19 @@ private fun PlaceholderHandTile(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Color(0xFF374151))
+            Text(text = title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = Color(0xFF374151))
             Spacer(modifier = Modifier.height(6.dp))
-            Text(text = hint, fontSize = Dimens.TextSizeSmall, color = Color(0xFF6B7280))
+            Text(text = hint, fontSize = 16.sp, color = Color(0xFF6B7280))
         }
     }
 }
 
 private fun formatHealthCert(days: Int?): String {
     return when {
-        days == null -> "--"
+        days == null -> "未登记有效期"
         days < 0 -> "已过期 ${kotlin.math.abs(days)} 天"
-        else -> "剩余 ${days} 天"
+        days <= 7 -> "即将过期，仅剩 ${days} 天"
+        else -> "有效，剩余 ${days} 天"
     }
 }
 
@@ -1347,7 +1527,7 @@ private fun InfoCard(
         Text(
             text = title,
             color = Color(0xFF64748B),
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -1413,7 +1593,7 @@ private fun HandCheckStepCard(
                 Text(
                     text = stepTitle,
                     color = textMain,
-                    fontSize = 15.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 if (stepHint.isNotBlank()) {
@@ -1421,7 +1601,7 @@ private fun HandCheckStepCard(
                     Text(
                         text = stepHint,
                         color = textMuted,
-                        fontSize = 12.sp
+                        fontSize = 16.sp
                     )
                 }
             }
@@ -1429,7 +1609,7 @@ private fun HandCheckStepCard(
                 Text(
                     text = statusText,
                     color = chipText,
-                    fontSize = 12.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                 )
@@ -1501,7 +1681,7 @@ private fun HandCheckStepCard(
                     Text(
                         text = issueSummary.ifBlank { "异常" },
                         color = danger,
-                        fontSize = 12.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }

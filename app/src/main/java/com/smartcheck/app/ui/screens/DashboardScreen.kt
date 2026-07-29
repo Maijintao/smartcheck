@@ -3,6 +3,8 @@ package com.smartcheck.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -53,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.smartcheck.app.viewmodel.SettingsViewModel
+import com.smartcheck.app.viewmodel.DashboardViewModel
+import com.smartcheck.app.viewmodel.TodayCheckSummary
 
 @Composable
 fun DashboardScreen(
@@ -61,11 +67,13 @@ fun DashboardScreen(
     onNavigateRecords: () -> Unit,
     onNavigateExport: () -> Unit,
     onNavigateSettings: () -> Unit,
-    settingsViewModel: SettingsViewModel = hiltViewModel()
+    settingsViewModel: SettingsViewModel = hiltViewModel(),
+    dashboardViewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val canteenName by settingsViewModel.canteenName.collectAsState()
     val adminAvatar by settingsViewModel.adminAvatar.collectAsState()
     val adminName by settingsViewModel.adminName.collectAsState()
+    val todaySummary by dashboardViewModel.todaySummary.collectAsState()
 
     val primaryBlue = Color(0xFF2563EB)
     val primaryLight = Color(0xFFEFF6FF)
@@ -102,6 +110,7 @@ fun DashboardScreen(
                 primaryLight = primaryLight,
                 textMain = textMain,
                 textMuted = textMuted,
+                todaySummary = todaySummary,
                 onNavigateCheck = onNavigateCheck,
                 onNavigateEmployees = onNavigateEmployees,
                 onNavigateRecords = onNavigateRecords,
@@ -360,22 +369,107 @@ private fun MainPanel(
     primaryLight: Color,
     textMain: Color,
     textMuted: Color,
+    todaySummary: TodayCheckSummary,
     onNavigateCheck: () -> Unit,
     onNavigateEmployees: () -> Unit,
     onNavigateRecords: () -> Unit,
     onNavigateExport: () -> Unit
 ) {
-    // 功能卡片区域 - 2x2网格
-    FeatureCardLayout(
-        modifier = modifier.fillMaxSize(),
-        primaryBlue = primaryBlue,
-        textMain = textMain,
-        textMuted = textMuted,
-        onNavigateCheck = onNavigateCheck,
-        onNavigateEmployees = onNavigateEmployees,
-        onNavigateRecords = onNavigateRecords,
-        onNavigateExport = onNavigateExport
-    )
+    Column(modifier = modifier.fillMaxSize()) {
+        TodayCheckSummaryCard(
+            summary = todaySummary,
+            primaryBlue = primaryBlue,
+            textMain = textMain,
+            textMuted = textMuted,
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        FeatureCardLayout(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            primaryBlue = primaryBlue,
+            textMain = textMain,
+            textMuted = textMuted,
+            onNavigateCheck = onNavigateCheck,
+            onNavigateEmployees = onNavigateEmployees,
+            onNavigateRecords = onNavigateRecords,
+            onNavigateExport = onNavigateExport
+        )
+    }
+}
+
+@Composable
+private fun TodayCheckSummaryCard(
+    summary: TodayCheckSummary,
+    primaryBlue: Color,
+    textMain: Color,
+    textMuted: Color,
+) {
+    val pendingText = when {
+        summary.totalCount == 0 -> "尚未录入员工"
+        summary.pendingNames.isEmpty() -> "全部员工今日已完成晨检"
+        else -> summary.pendingNames.joinToString("、")
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.size(58.dp).background(Color(0xFFEFF6FF), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.VerifiedUser,
+                    contentDescription = null,
+                    tint = primaryBlue,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(18.dp))
+            Column(modifier = Modifier.width(190.dp)) {
+                Text(text = "今日晨检", color = textMuted, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "${summary.completedCount} / ${summary.totalCount} 人已完成",
+                    color = textMain,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Divider(
+                modifier = Modifier.height(58.dp).width(1.dp),
+                color = Color(0xFFE2E8F0),
+            )
+            Spacer(modifier = Modifier.width(20.dp))
+            Icon(
+                imageVector = Icons.Default.WarningAmber,
+                contentDescription = null,
+                tint = if (summary.pendingNames.isEmpty()) Color(0xFF10B981) else Color(0xFFF59E0B),
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (summary.pendingNames.isEmpty()) "未晨检人员" else "未晨检人员（${summary.pendingNames.size} 人）",
+                    color = textMain,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = pendingText,
+                    color = if (summary.pendingNames.isEmpty()) Color(0xFF059669) else textMuted,
+                    fontSize = 15.sp,
+                    modifier = Modifier.heightIn(max = 48.dp).verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+    }
 }
 
 @Composable

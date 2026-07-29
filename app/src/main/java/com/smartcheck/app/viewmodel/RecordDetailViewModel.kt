@@ -47,13 +47,33 @@ class RecordDetailViewModel @Inject constructor(
         val current = _record.value ?: return
         
         val isTempNormal = temperature < 37.3f
-        val isHandNormal = handStatus.equals("NORMAL", ignoreCase = true)
+        val parsedHandStatus = when (handStatus.trim().uppercase()) {
+            "NORMAL", "正常", "合规" -> HandStatus.NORMAL
+            "ABNORMAL", "异常", "不合格" -> HandStatus.ABNORMAL
+            else -> HandStatus.NOT_CHECKED
+        }
+        val isHandNormal = parsedHandStatus == HandStatus.NORMAL
         val isPassed = isTempNormal && isHandNormal
-        
-        val parsedHandStatus = try { HandStatus.valueOf(handStatus.uppercase()) } catch (e: Exception) { HandStatus.NOT_CHECKED }
-        val parsedHealthCertStatus = try { HealthCertStatus.valueOf(healthCertStatus.uppercase()) } catch (e: Exception) { HealthCertStatus.VALID }
-        val parsedSymptomFlags = symptomFlags.split(",").mapNotNull {
-            try { SymptomType.valueOf(it.trim().uppercase()) } catch (e: Exception) { null }
+
+        val parsedHealthCertStatus = when (healthCertStatus.trim().uppercase()) {
+            "EXPIRED", "过期", "已过期" -> HealthCertStatus.EXPIRED
+            "EXPIRING_SOON", "临期", "即将过期", "快过期" -> HealthCertStatus.EXPIRING_SOON
+            else -> HealthCertStatus.VALID
+        }
+        val parsedSymptomFlags = symptomFlags.split(",", "，", "、").mapNotNull {
+            when (it.trim().uppercase()) {
+                "FEVER", "发热", "发烧" -> SymptomType.FEVER
+                "VOMITING", "呕吐" -> SymptomType.VOMITING
+                "COUGH", "咳嗽" -> SymptomType.COUGH
+                "RUNNY_NOSE", "流涕", "流鼻涕" -> SymptomType.RUNNY_NOSE
+                "DIARRHEA", "腹泻" -> SymptomType.DIARRHEA
+                "RASH", "皮疹" -> SymptomType.RASH
+                "FATIGUE", "乏力", "疲劳" -> SymptomType.FATIGUE
+                "HEADACHE", "头痛" -> SymptomType.HEADACHE
+                "SORE_THROAT", "咽痛", "喉咙痛" -> SymptomType.SORE_THROAT
+                "OTHER", "其他", "其他不适" -> SymptomType.OTHER
+                else -> null
+            }
         }
         
         val updated = current.copy(

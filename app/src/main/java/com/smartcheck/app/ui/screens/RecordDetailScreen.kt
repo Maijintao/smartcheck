@@ -61,6 +61,7 @@ import coil.compose.SubcomposeAsyncImageContent
 import com.smartcheck.app.domain.model.HealthCertStatus
 import com.smartcheck.app.domain.model.HandStatus
 import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.ui.util.toChineseLabel
 import com.smartcheck.app.utils.FileUtil
 import com.smartcheck.app.viewmodel.RecordDetailViewModel
 import java.text.SimpleDateFormat
@@ -87,9 +88,9 @@ fun RecordDetailScreen(
     LaunchedEffect(record) {
         val value = record ?: return@LaunchedEffect
         temperature = value.temperature.toString()
-        handStatus = value.handStatus.name
-        healthCertStatus = value.healthCertStatus.name
-        symptomFlags = value.symptomFlags.joinToString(", ") { it.name }
+        handStatus = value.handStatus.toChineseLabel()
+        healthCertStatus = value.healthCertStatus.toChineseLabel()
+        symptomFlags = value.symptomFlags.joinToString("、") { it.toChineseLabel() }
         remark = value.remark
     }
 
@@ -174,15 +175,15 @@ fun RecordDetailScreen(
             val tempLabel = if (isTempNormal) "体温正常" else "体温异常"
 
             val healthBadge = when (currentRecord.healthCertStatus) {
-                HealthCertStatus.VALID -> Triple(successBg, success, "有效 (VALID)")
-                HealthCertStatus.EXPIRING_SOON -> Triple(warningBg, warning, "临期 (EXPIRING_SOON)")
-                HealthCertStatus.EXPIRED -> Triple(dangerBg, danger, "过期 (EXPIRED)")
+                HealthCertStatus.VALID -> Triple(successBg, success, "有效")
+                HealthCertStatus.EXPIRING_SOON -> Triple(warningBg, warning, "即将过期")
+                HealthCertStatus.EXPIRED -> Triple(dangerBg, danger, "已过期")
             }
 
             val symptomDisplay = if (currentRecord.symptomFlags.isEmpty()) {
                 "无"
             } else {
-                currentRecord.symptomFlags.joinToString(", ") { it.name }
+                currentRecord.symptomFlags.joinToString("、") { it.toChineseLabel() }
             }
 
             Row(
@@ -508,9 +509,9 @@ fun RecordDetailScreen(
                                     onClick = {
                                         if (isEditing) {
                                             temperature = currentRecord.temperature.toString()
-                                            handStatus = currentRecord.handStatus.name
-                                            healthCertStatus = currentRecord.healthCertStatus.name
-                                            symptomFlags = currentRecord.symptomFlags.joinToString(", ") { it.name }
+                                            handStatus = currentRecord.handStatus.toChineseLabel()
+                                            healthCertStatus = currentRecord.healthCertStatus.toChineseLabel()
+                                            symptomFlags = currentRecord.symptomFlags.joinToString("、") { it.toChineseLabel() }
                                             remark = currentRecord.remark
                                             isEditing = false
                                         } else {
@@ -538,11 +539,7 @@ fun RecordDetailScreen(
                             }
                             Divider(color = borderColor)
 
-                            val handText = when (currentRecord.handStatus) {
-                                HandStatus.NORMAL -> "合规 (NORMAL)"
-                                HandStatus.ABNORMAL -> "异常 (ABNORMAL)"
-                                HandStatus.NOT_CHECKED -> "未检测 (NOT_CHECKED)"
-                            }
+                            val handText = currentRecord.handStatus.toChineseLabel()
 
                             val handColor = when (currentRecord.handStatus) {
                                 HandStatus.NORMAL -> success
@@ -576,9 +573,9 @@ fun RecordDetailScreen(
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     EditField(label = "体温", value = temperature, enabled = true) { temperature = it }
-                                    EditField(label = "手部情况 (NORMAL/ABNORMAL/NOT_CHECKED)", value = handStatus, enabled = true) { handStatus = it }
-                                    EditField(label = "健康证状态 (VALID/EXPIRING_SOON/EXPIRED)", value = healthCertStatus, enabled = true) { healthCertStatus = it }
-                                    EditField(label = "身体不适 (逗号分隔)", value = symptomFlags, enabled = true) { symptomFlags = it }
+                                    EditField(label = "手部情况（正常/异常/未检测）", value = handStatus, enabled = true) { handStatus = it }
+                                    EditField(label = "健康证状态（有效/即将过期/已过期）", value = healthCertStatus, enabled = true) { healthCertStatus = it }
+                                    EditField(label = "身体不适（顿号或逗号分隔）", value = symptomFlags, enabled = true) { symptomFlags = it }
                                     EditField(label = "备注", value = remark, enabled = true) { remark = it }
 
                                     Button(
