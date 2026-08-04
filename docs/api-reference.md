@@ -20,7 +20,7 @@
   - [4.5 用户账号同步](#45-用户账号同步)
   - [4.6 文件下载](#46-文件下载)
 - [5. 枚举值说明](#5-枚举值说明)
-- [6. 接入示例](#6-接入示例)
+- [6. 接入指南](#6-接入指南)
 
 ---
 
@@ -881,17 +881,95 @@ curl http://192.168.1.100:8080/api/images/face_emp_123_1.jpg \
 
 ---
 
-## 6. 接入示例
+## 6. 接入指南
 
-以下为完整的接入流程示例（使用 `curl` 命令行）。
+本章节面向**第三方平台开发人员**，详细说明如何将紫马晨检仪接入自有系统。
 
-### 第一步：检查设备是否在线
+### 6.1 接入架构
+
+```
+┌──────────────────┐         HTTP (REST)         ┌──────────────────┐
+│   第三方平台      │  ◄──────────────────────►  │   紫马晨检仪      │
+│  （你的服务器）    │     http://设备IP:8080      │  （本地 API）     │
+└──────────────────┘                             └──────────────────┘
+        │                                                │
+        │  1. 推送员工数据到设备                           │
+        │  2. 拉取晨检记录到平台                           │
+        │  3. 下载晨检照片                                │
+        │                                                │
+        ▼                                                ▼
+  ┌──────────┐                                    ┌──────────┐
+  │ 你的数据库 │                                    │ 设备本地库 │
+  └──────────┘                                    └──────────┘
+```
+
+**职责划分**:
+
+| 角色 | 职责 |
+|------|------|
+| **第三方平台** | 管理员工主数据、消费晨检记录、展示报表 |
+| **晨检仪设备** | 执行晨检（人脸识别、测温、手部检测）、存储记录、提供 API |
+
+### 6.2 接入前提
+
+1. 晨检仪已部署并联网，平台服务器能访问设备 IP 的 `8080` 端口
+2. 已获取设备的管理员账号和密码（出厂默认 `admin` / `123456`，可在设备设置中修改）
+3. 平台侧实现 HTTP 客户端，支持 JSON 解析
+
+### 6.3 核心接入流程
+
+完整的接入分为 **4 个阶段**：
+
+```
+阶段1：连通性验证
+    └─ GET /health 确认设备在线
+
+阶段2：认证
+    └─ POST /api/auth/login 获取 Token
+
+阶段3：员工数据同步（平台 → 设备）
+    └─ POST /api/employees/import 推送员工信息
+    └─ POST /api/employees/upload-photo 上传人脸照片
+    └─ POST /api/employees/upload-cert-photo 上传健康证照片
+
+阶段4：晨检记录消费（设备 → 平台）
+    └─ GET /api/records/sync 增量拉取新记录
+    └─ GET /api/images/{filename} 下载晨检照片
+    └─ GET /api/records/statistics 查询统计数据
+```
+
+---
+
+### 6.4 阶段详解
+
+#### 阶段 1：连通性验证
+
+确认设备 API 服务正常运行：
 
 ```bash
 curl http://192.168.1.100:8080/health
 ```
 
-### 第二步：登录获取 Token
+**预期响应**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "ok",
+    "timestamp": 1700000000000
+  }
+}
+```
+
+**异常处理**：
+- 连接超时 → 设备未开机或网络不通
+- 返回非 JSON → 端口被其他服务占用
+
+---
+
+#### 阶段 2：认证登录
 
 ```bash
 curl -X POST http://192.168.1.100:8080/api/auth/login \
@@ -899,7 +977,7 @@ curl -X POST http://192.168.1.100:8080/api/auth/login \
   -d '{"username":"admin","password":"123456"}'
 ```
 
-响应：
+**预期响应**：
 
 ```json
 {
@@ -914,38 +992,25 @@ curl -X POST http://192.168.1.100:8080/api/auth/login \
 }
 ```
 
-### 第三步：查询今日晨检记录
+**Token 管理建议**：
+- Token 有效期 24 小时，建议在过期前 1 小时主动刷新
+- 建议平台为每台设备缓存 Token，避免每次请求都登录
+- 遇到 `code: 1001` 时重新登录获取新 Token
 
-```bash
-curl http://192.168.1.100:8080/api/records?startDate=2026-07-23&endDate=2026-07-23&page=1&pageSize=50 \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
-```
+---
 
-### 第四步：增量同步晨检记录
+#### 阶段 3：员工数据同步
 
-```bash
-# 首次同步（lastRecordId=0）
-curl "http://192.168.1.100:8080/api/records/sync?lastRecordId=0&limit=100" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+##### 3a. 批量导入员工（基础信息）
 
-# 响应中 hasMore=true 时，用 lastRecordId 继续拉取
-curl "http://192.168.1.100:8080/api/records/sync?lastRecordId=500&limit=100" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
-```
+将平台中的员工数据推送到设备。支持两种模式：
 
-### 第五步：增量同步员工数据
+| 模式 | `incremental` 值 | 行为 |
+|------|-------------------|------|
+| 增量导入（推荐） | `true` | 已存在的工号跳过，只导入新员工 |
+| 全量覆盖 | `false` | 已存在的工号更新信息，不存在的创建 |
 
-```bash
-# 首次同步（lastEmployeeId=0）
-curl "http://192.168.1.100:8080/api/employees/sync?lastEmployeeId=0&limit=100" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
-
-# 响应中 hasMore=true 时，用 lastRecordId 继续拉取
-curl "http://192.168.1.100:8080/api/employees/sync?lastEmployeeId=50&limit=100" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
-```
-
-### 第六步：批量导入员工
+**请求示例 — 导入单个员工**：
 
 ```bash
 curl -X POST http://192.168.1.100:8080/api/employees/import \
@@ -954,15 +1019,289 @@ curl -X POST http://192.168.1.100:8080/api/employees/import \
   -d '{
     "employees": [
       {
-        "name": "李四",
-        "employeeId": "EMP002",
-        "position": "帮厨",
-        "department": "厨房"
+        "name": "张三",
+        "employeeId": "EMP001",
+        "idCardNumber": "310101199001011234",
+        "phone": "13800138000",
+        "position": "厨师",
+        "department": "厨房",
+        "healthCertCode": "HC2024001",
+        "healthCertStartDate": 1700000000000,
+        "healthCertEndDate": 1731536000000,
+        "isActive": true
       }
     ],
     "incremental": true
   }'
 ```
+
+**请求示例 — 批量导入多个员工**：
+
+```bash
+curl -X POST http://192.168.1.100:8080/api/employees/import \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -d '{
+    "employees": [
+      {"name": "张三", "employeeId": "EMP001", "position": "厨师"},
+      {"name": "李四", "employeeId": "EMP002", "position": "帮厨"},
+      {"name": "王五", "employeeId": "EMP003", "position": "保洁"}
+    ],
+    "incremental": true
+  }'
+```
+
+**响应示例**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "total": 3,
+    "success": 2,
+    "failed": 1,
+    "details": [
+      {"employeeId": "EMP001", "status": "success", "message": "导入成功", "userId": 10},
+      {"employeeId": "EMP002", "status": "success", "message": "导入成功", "userId": 11},
+      {"employeeId": "EMP003", "status": "skipped", "message": "员工工号已存在，跳过", "userId": 12}
+    ]
+  }
+}
+```
+
+> **注意**: 单次最多 100 条。超过时请分批调用。
+
+##### 3b. 上传人脸照片
+
+员工基础信息导入后，需单独上传人脸照片。设备会自动检测人脸并提取特征用于后续识别。
+
+**方式一：通过导入接口（推荐）**
+
+在 `import` 请求中直接带上 `faceImageBase64` 字段：
+
+```json
+{
+  "employees": [
+    {
+      "name": "张三",
+      "employeeId": "EMP001",
+      "faceImageBase64": "/9j/4AAQSkZJRg..."
+    }
+  ],
+  "incremental": false
+}
+```
+
+**方式二：单独上传**
+
+```bash
+curl -X POST http://192.168.1.100:8080/api/employees/upload-photo \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -d '{
+    "fileName": "face_EMP001.jpg",
+    "imageBase64": "/9j/4AAQSkZJRg..."
+  }'
+```
+
+> **重要**:
+> - `fileName` 格式必须为 `face_<工号>.jpg`（如 `face_EMP001.jpg`）
+> - 照片建议为正面免冠、光线均匀的 JPEG 格式
+> - 建议尺寸不小于 200×200 像素
+> - Base64 编码前大小建议控制在 200KB 以内
+
+**常见错误**：
+
+| 错误 | 原因 | 解决方案 |
+|------|------|----------|
+| `"图片中未检测到人脸"` | 照片中无人脸或人脸太小 | 更换清晰的正面照片 |
+| `"无法提取人脸特征"` | 人脸模糊或角度异常 | 确保正脸、无遮挡 |
+| `"员工工号不存在"` | 未先导入员工基础信息 | 先调用 import 接口 |
+
+##### 3c. 上传健康证照片
+
+```bash
+curl -X POST http://192.168.1.100:8080/api/employees/upload-cert-photo \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -d '{
+    "fileName": "cert_EMP001.jpg",
+    "imageBase64": "/9j/4AAQSkZJRg..."
+  }'
+```
+
+> `fileName` 格式：`cert_<工号>.jpg` 或 `.jpeg` 或 `.png`
+
+---
+
+#### 阶段 4：晨检记录消费
+
+##### 4a. 增量拉取晨检记录
+
+推荐使用增量同步接口，定时（如每 5 分钟）拉取新增记录：
+
+```bash
+# 第一次拉取
+curl "http://192.168.1.100:8080/api/records/sync?lastRecordId=0&limit=100" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+**响应**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": 1,
+        "userId": 10,
+        "userName": "张三",
+        "employeeId": "EMP001",
+        "checkTime": 1700000000000,
+        "temperature": 36.5,
+        "isTempNormal": true,
+        "isHandNormal": true,
+        "isPassed": true,
+        "handStatus": "NORMAL",
+        "healthCertStatus": "VALID",
+        "symptomFlags": "",
+        "remark": ""
+      }
+    ],
+    "hasMore": true,
+    "lastRecordId": 100,
+    "syncTime": 1700000000000
+  }
+}
+```
+
+**循环拉取直到 `hasMore=false`**：
+
+```bash
+# 继续拉取
+curl "http://192.168.1.100:8080/api/records/sync?lastRecordId=100&limit=100" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+> **同步建议**:
+> - 平台侧记录每台设备的 `lastRecordId`，下次调用时传入
+> - 建议轮询间隔 3~5 分钟
+> - 拉取到的记录同步到平台数据库后，可标记为已同步
+
+##### 4b. 查询指定日期的记录
+
+按日期范围精确查询：
+
+```bash
+curl "http://192.168.1.100:8080/api/records?startDate=2026-07-23&endDate=2026-07-23&page=1&pageSize=50&includeImages=true" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+可组合筛选条件：
+
+```bash
+# 只查体温异常的记录
+curl "http://192.168.1.100:8080/api/records?startDate=2026-07-23&endDate=2026-07-23&isTempNormal=false" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+
+# 只查某个员工的记录
+curl "http://192.168.1.100:8080/api/records?startDate=2026-07-23&endDate=2026-07-23&employeeId=EMP001" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+##### 4c. 下载晨检照片
+
+记录查询响应中 `images` 字段包含照片相对路径，拼接基础地址后下载：
+
+```bash
+# 1. 先查记录（includeImages=true），获取图片路径
+# images.face = "/api/images/face_emp_123_1.jpg"
+
+# 2. 下载照片
+curl http://192.168.1.100:8080/api/images/face_emp_123_1.jpg \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -o face.jpg
+```
+
+> 晨检照片有三种：`face`（人脸）、`palm`（手掌）、`back`（手背），均通过 `/api/images/` 下载。
+
+##### 4d. 查询统计数据
+
+```bash
+curl "http://192.168.1.100:8080/api/records/statistics?startDate=2026-07-01&endDate=2026-07-31" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+**响应**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "totalCheck": 1000,
+    "passed": 950,
+    "failed": 50,
+    "tempAbnormal": 30,
+    "handAbnormal": 20,
+    "dailyStats": [
+      {"date": "2026-07-01", "total": 200, "passed": 190, "failed": 10, "tempAbnormal": 6, "handAbnormal": 4},
+      {"date": "2026-07-02", "total": 210, "passed": 200, "failed": 10, "tempAbnormal": 5, "handAbnormal": 5}
+    ]
+  }
+}
+```
+
+---
+
+### 6.5 定时任务建议
+
+外部平台建议配置以下定时任务：
+
+| 任务 | 建议频率 | 接口 | 说明 |
+|------|----------|------|------|
+| 设备在线检测 | 每 1 分钟 | `GET /health` | 设备离线告警 |
+| 晨检记录同步 | 每 5 分钟 | `GET /api/records/sync` | 拉取新增记录 |
+| 员工数据同步 | 每日 1 次 | `POST /api/employees/import` | 增量推送新增/变更员工 |
+| Token 刷新 | 每 23 小时 | `POST /api/auth/login` | 重新登录获取新 Token |
+| 统计报表 | 每日 1 次 | `GET /api/records/statistics` | 生成日报 |
+
+---
+
+### 6.6 错误处理
+
+| 场景 | 错误码 | 处理方式 |
+|------|--------|----------|
+| Token 过期 | `1001` | 重新登录，获取新 Token 后重试 |
+| 参数缺失 | `1004` | 检查请求参数是否完整 |
+| 员工不存在 | `1003` | 先调用 import 接口创建员工 |
+| 人脸检测失败 | `1004` | 更换照片（正面、清晰、无遮挡） |
+| 服务器内部错误 | `1005` | 稍后重试；持续报错联系技术支持 |
+| 设备离线 | 连接超时 | 检查网络和设备电源 |
+
+**重试策略建议**：
+- 登录失败 → 不重试，等待人工处理
+- 记录同步失败 → 指数退避重试（1s → 2s → 4s → 最大 30s）
+- 员工导入失败 → 记录失败项，下次批量重试
+- 照片上传失败 → 记录失败员工，单独重试
+
+---
+
+### 6.7 接入检查清单
+
+首次接入时，按以下步骤验证：
+
+- [ ] `GET /health` 返回 `code: 0`
+- [ ] `POST /api/auth/login` 返回有效 Token
+- [ ] 使用 Token 调用 `GET /api/records` 不报 `1001`
+- [ ] `POST /api/employees/import` 成功导入测试员工
+- [ ] `POST /api/employees/upload-photo` 成功上传人脸照片
+- [ ] `GET /api/records/sync?lastRecordId=0` 能拉取到记录
+- [ ] `GET /api/images/{filename}` 能下载照片
+- [ ] 设备上完成一次晨检，平台能同步到该记录
 
 ---
 
