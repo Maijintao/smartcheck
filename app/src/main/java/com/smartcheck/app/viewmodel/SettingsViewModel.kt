@@ -17,6 +17,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.smartcheck.app.data.upload.ConnectionTestResult
 import com.smartcheck.app.data.upload.DeviceHeartbeatManager
+import java.util.concurrent.TimeUnit
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -99,6 +100,18 @@ class SettingsViewModel @Inject constructor(
                 }
             }
             recordRepository.deleteAllRecords()
+        }
+    }
+
+    /**
+     * 低存储空间时清理旧记录（图片 + 数据库）
+     * 删除指定天数前的所有记录，用于磁盘空间不足的紧急场景
+     */
+    fun clearOldRecordsLowSpace(days: Int = 30) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days.toLong())
+            FileUtil.clearOldRecords(appContext, days)
+            recordRepository.deleteOldRecords(cutoff)
         }
     }
 }

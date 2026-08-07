@@ -255,7 +255,7 @@ fun HomeScreen(
         val available = context.filesDir.usableSpace
         val threshold = 500L * 1024L * 1024L
         if (available < threshold) {
-            FileUtil.clearOldRecords(context, 30)
+            settingsViewModel.clearOldRecordsLowSpace(30)
             Toast.makeText(context, "存储空间不足，已清理30天前记录", Toast.LENGTH_SHORT).show()
         }
     }

@@ -8,6 +8,7 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraXConfig
 import com.smartcheck.app.api.KtorServerManager
+import com.smartcheck.app.data.cleanup.RecordCleanupScheduler
 import com.smartcheck.app.data.sync.EmployeeSyncEngine
 import com.smartcheck.app.data.sync.SyncScheduler
 import com.smartcheck.app.data.upload.DeviceHeartbeatManager
@@ -54,6 +55,9 @@ class App : Application(), CameraXConfig.Provider {
     lateinit var syncScheduler: SyncScheduler
 
     @Inject
+    lateinit var recordCleanupScheduler: RecordCleanupScheduler
+
+    @Inject
     lateinit var appScope: CoroutineScope
 
     override fun onCreate() {
@@ -94,6 +98,9 @@ class App : Application(), CameraXConfig.Provider {
 
         // 启动员工同步引擎
         startEmployeeSync()
+
+        // 启动晨检记录自动清理（每 7 天清理已上传的旧记录）
+        startRecordCleanup()
     }
 
     private fun startKtorServer() {
@@ -290,6 +297,30 @@ class App : Application(), CameraXConfig.Provider {
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to start employee sync")
+        }
+    }
+
+    private fun startRecordCleanup() {
+        try {
+            // 延迟 10 秒启动，避免启动时争抢资源
+            android.os.Handler(mainLooper).postDelayed({
+                if (::recordCleanupScheduler.isInitialized) {
+                    recordCleanupScheduler.start()
+                    Timber.i("RecordCleanupScheduler started (7-day retention)")
+                } else {
+                    Timber.w("RecordCleanupScheduler not initialized yet, will retry...")
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (::recordCleanupScheduler.isInitialized) {
+                            recordCleanupScheduler.start()
+                            Timber.i("RecordCleanupScheduler started on retry")
+                        } else {
+                            Timber.e("RecordCleanupScheduler failed to initialize")
+                        }
+                    }, 3000)
+                }
+            }, 10_000)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start RecordCleanupScheduler")
         }
     }
 

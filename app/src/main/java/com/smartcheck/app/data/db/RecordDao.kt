@@ -45,6 +45,9 @@ interface RecordDao {
     @Query("DELETE FROM check_records WHERE checkTime < :beforeTime")
     suspend fun deleteOldRecords(beforeTime: Long)
 
+    @Query("DELETE FROM check_records WHERE checkTime < :beforeTime AND isUploaded = 1")
+    suspend fun deleteOldUploadedRecords(beforeTime: Long)
+
     @Query("DELETE FROM check_records")
     suspend fun deleteAllRecords()
 
