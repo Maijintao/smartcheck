@@ -29,7 +29,12 @@ class CloudRecordService @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     companion object {
+<<<<<<< feature/shi-an
         private const val PLATFORM_ENDPOINT = "/api/device/morning-check/upload"
+=======
+        private const val BASE_URL = "http://api.zacp.iyouxin.com"
+        private const val ENDPOINT = "/kitchen/morningCheck/saveData"
+>>>>>>> local
     }
 
     /**

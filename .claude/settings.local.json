@@ -23,7 +23,21 @@
       "Bash(python -m pip install markdown)",
       "Bash(cp \"C:/Users/82417/Desktop/晨检ui/登录-实验室.png\" app/src/main/res/drawable/login_bg.png)",
       "Bash(cp \"C:/Users/82417/Desktop/晨检ui/首页.png\" app/src/main/res/drawable/dashboard_bg.png)",
+<<<<<<< feature/shi-an
       "Bash(./gradlew :app:compileDebugKotlin)"
+=======
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(git rebase *)",
+      "Bash(git stash *)",
+      "Bash(git ls-remote *)",
+      "Bash(git switch *)",
+      "Bash(git pull *)",
+      "Bash(gradlew.bat :app:assembleRelease *)",
+      "Bash(./gradlew.bat :app:assembleRelease *)"
+>>>>>>> local
     ]
   }
 }

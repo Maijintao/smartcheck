@@ -30,13 +30,16 @@ object AppUpdateChecker {
 
     private const val TAG = "AppUpdateChecker"
 
+    /** 当前 App 的设备类型标识（晨检仪 = "smartcheck"，留样秤 = "sample_scale"） */
+    const val DEVICE_TYPE = "smartcheck"
+
     /**
      * 检查是否有新版本。
      * @return Result.success(UpdateInfo) 有新版；Result.success(null) 已是最新；Result.failure 网络/解析错误
      */
-    suspend fun checkUpdate(serverBaseUrl: String): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
+    suspend fun checkUpdate(serverBaseUrl: String, deviceType: String = DEVICE_TYPE): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${serverBaseUrl.trimEnd('/')}/api/app/version/latest")
+            val url = URL("${serverBaseUrl.trimEnd('/')}/api/app/version/latest?device_type=$deviceType")
             Timber.i("$TAG 检查更新 URL: $url (本地 versionCode=${BuildConfig.VERSION_CODE})")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
@@ -92,9 +95,9 @@ object AppUpdateChecker {
     /**
      * 获取版本历史列表（最近 10 条），供 App 展示更新记录。
      */
-    suspend fun getVersionHistory(serverBaseUrl: String): Result<List<UpdateInfo>> = withContext(Dispatchers.IO) {
+    suspend fun getVersionHistory(serverBaseUrl: String, deviceType: String = DEVICE_TYPE): Result<List<UpdateInfo>> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${serverBaseUrl.trimEnd('/')}/api/app/version/history")
+            val url = URL("${serverBaseUrl.trimEnd('/')}/api/app/version/history?device_type=$deviceType")
             Timber.i("$TAG 获取版本历史: $url")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
