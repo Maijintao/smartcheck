@@ -422,12 +422,24 @@ data class CloudCheckRecordResponse(
  */
 @Serializable
 data class MorningCheckEmployee(
-    @SerialName("id") val id: String,
+    @SerialName("employee_id") val employeeId: String,
     @SerialName("name") val name: String,
+    @SerialName("record_id") val recordId: Long,
+    @SerialName("record_uuid") val recordUuid: String,
+    @SerialName("user_id") val userId: Long,
     @SerialName("temperature") val temperature: Float,
-    @SerialName("photo") val photo: String = "",
-    @SerialName("hand_palm_photo") val handPalmPhoto: String = "",
-    @SerialName("hand_back_photo") val handBackPhoto: String = ""
+    @SerialName("is_temp_normal") val isTempNormal: Boolean,
+    @SerialName("is_hand_normal") val isHandNormal: Boolean?,
+    @SerialName("is_passed") val isPassed: Boolean,
+    @SerialName("hand_status") val handStatus: String,
+    @SerialName("has_foreign_object") val hasForeignObject: Boolean?,
+    @SerialName("hand_abnormal_types") val handAbnormalTypes: List<String>,
+    @SerialName("health_cert_status") val healthCertStatus: String,
+    @SerialName("symptom_flags") val symptomFlags: List<String>,
+    @SerialName("remark") val remark: String,
+    @SerialName("photo") val photo: String? = null,
+    @SerialName("hand_palm_photo") val handPalmPhoto: String? = null,
+    @SerialName("hand_back_photo") val handBackPhoto: String? = null
 )
 
 /**
@@ -445,9 +457,12 @@ data class MorningCheckUploadRequest(
  */
 @Serializable
 data class MorningCheckUploadData(
-    @SerialName("recordId") val recordId: String = "",
+    @SerialName("recordIds") val recordIds: List<String> = emptyList(),
     @SerialName("processTime") val processTime: Int = 0,
-    @SerialName("warnings") val warnings: List<String> = emptyList()
+    @SerialName("warnings") val warnings: List<String> = emptyList(),
+    @SerialName("capture_image_url") val captureImageUrl: String? = null,
+    @SerialName("hand_palm_image_url") val handPalmImageUrl: String? = null,
+    @SerialName("hand_back_image_url") val handBackImageUrl: String? = null
 )
 
 /**
@@ -477,7 +492,8 @@ data class DeviceHeartbeatResponse(
 data class MorningCheckUploadResponse(
     @SerialName("code") val code: Int,
     @SerialName("message") val message: String,
-    @SerialName("data") val data: MorningCheckUploadData? = null
+    @SerialName("data") val data: MorningCheckUploadData? = null,
+    @SerialName("request_id") val requestId: String? = null
 ) {
     val isSuccess: Boolean get() = code == 200
 }

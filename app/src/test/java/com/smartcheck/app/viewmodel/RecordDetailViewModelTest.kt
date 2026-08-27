@@ -39,6 +39,7 @@ class RecordDetailViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         recordRepository = mockk(relaxed = true)
+        coEvery { recordRepository.updateRecord(any()) } returns Result.success(Unit)
     }
 
     @After

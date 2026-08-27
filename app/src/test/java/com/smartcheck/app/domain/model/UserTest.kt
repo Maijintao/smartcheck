@@ -13,10 +13,10 @@ class UserTest {
     // ── getHealthCertStatus ─────────────────────────────────────────────────
 
     @Test
-    fun `getHealthCertStatus 健康证到期日为 null 时返回 EXPIRED`() {
+    fun `getHealthCertStatus 健康证到期日为 null 时返回 NOT_PROVIDED`() {
         val user = User(name = "张三", employeeId = "E001", healthCertEndDate = null)
 
-        assertEquals(HealthCertStatus.EXPIRED, user.getHealthCertStatus())
+        assertEquals(HealthCertStatus.NOT_PROVIDED, user.getHealthCertStatus())
     }
 
     @Test

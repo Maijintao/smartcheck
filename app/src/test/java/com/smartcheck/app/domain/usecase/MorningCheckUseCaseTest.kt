@@ -63,7 +63,7 @@ class MorningCheckUseCaseTest {
         assertEquals(userId, result.userId)
         assertEquals(userName, result.userName)
         assertEquals(confidence, result.faceConfidence)
-        coVerify { voiceService.speak("欢迎，$userName") }
+        coVerify(exactly = 0) { voiceService.speak(any()) }
     }
 
     @Test
@@ -119,14 +119,11 @@ class MorningCheckUseCaseTest {
 
     @Test
     fun `speakSuccess calls voiceService with welcome message`() {
-        // Given
-        val userName = "张三"
-
         // When
-        useCase.speakSuccess(userName)
+        useCase.speakSuccess()
 
         // Then
-        coVerify { voiceService.speak("欢迎，$userName") }
+        coVerify { voiceService.speak("欢迎") }
     }
 
     @Test
@@ -299,6 +296,25 @@ class MorningCheckUseCaseTest {
     }
 
     @Test
+    fun `calculateIsPassed 有非发烧症状时返回 false`() {
+        val handResult = HandCheckResult(
+            palmNormal = true,
+            backNormal = true,
+            palmImagePath = null,
+            backImagePath = null
+        )
+
+        val result = useCase.calculateIsPassed(
+            isTempNormal = true,
+            handCheckResult = handResult,
+            healthCertStatus = HealthCertStatus.VALID,
+            symptoms = listOf(SymptomType.COUGH)
+        )
+
+        assertFalse(result)
+    }
+
+    @Test
     fun `calculateIsPassed 健康证即将过期但其他正常时返回 true`() {
         // EXPIRING_SOON 不阻断晨检
         val handResult = HandCheckResult(palmNormal = true, backNormal = true, palmImagePath = null, backImagePath = null)
@@ -452,8 +468,8 @@ class MorningCheckUseCaseTest {
     // ── calculateHealthCertStatus ───────────────────────────────────────────
 
     @Test
-    fun `calculateHealthCertStatus remainingDays 为 null 时返回 VALID`() {
-        assertEquals(HealthCertStatus.VALID, useCase.calculateHealthCertStatus(null))
+    fun `calculateHealthCertStatus remainingDays 为 null 时返回 NOT_PROVIDED`() {
+        assertEquals(HealthCertStatus.NOT_PROVIDED, useCase.calculateHealthCertStatus(null))
     }
 
     @Test
@@ -467,8 +483,13 @@ class MorningCheckUseCaseTest {
     }
 
     @Test
-    fun `calculateHealthCertStatus 大于等于 7 天返回 VALID`() {
+    fun `calculateHealthCertStatus 大于 7 天返回 VALID`() {
         assertEquals(HealthCertStatus.VALID, useCase.calculateHealthCertStatus(30))
+    }
+
+    @Test
+    fun `calculateHealthCertStatus 第 7 天返回 EXPIRING_SOON`() {
+        assertEquals(HealthCertStatus.EXPIRING_SOON, useCase.calculateHealthCertStatus(7))
     }
 
     // ── submitSymptoms ──────────────────────────────────────────────────────
@@ -514,7 +535,7 @@ class MorningCheckUseCaseTest {
     fun `speakHealthCertExpired 调用 voiceService`() {
         useCase.speakHealthCertExpired()
 
-        coVerify { voiceService.speak("健康证已过期，禁止晨检") }
+        coVerify { voiceService.speak("健康证已过期") }
     }
 
     @Test
@@ -535,7 +556,7 @@ class MorningCheckUseCaseTest {
     fun `speakHandCheckFail 调用 voiceService`() {
         useCase.speakHandCheckFail()
 
-        coVerify { voiceService.speak("手部检测不合格") }
+        coVerify { voiceService.speak("手部有异物") }
     }
 
     @Test

@@ -14,6 +14,10 @@ fun HealthCertStatus.toChineseLabel(): String = when (this) {
     HealthCertStatus.VALID -> "有效"
     HealthCertStatus.EXPIRING_SOON -> "即将过期"
     HealthCertStatus.EXPIRED -> "已过期"
+    HealthCertStatus.NOT_PROVIDED -> "未录入"
+    HealthCertStatus.REVOKED -> "已吊销"
+    HealthCertStatus.NOT_CHECKED -> "未检查"
+    HealthCertStatus.UNKNOWN -> "未知"
 }
 
 fun SymptomType.toChineseLabel(): String = when (this) {

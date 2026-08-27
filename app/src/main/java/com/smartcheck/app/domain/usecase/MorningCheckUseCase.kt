@@ -31,7 +31,7 @@ class MorningCheckUseCase @Inject constructor(
                 user = user,
                 healthCertStatus = healthStatus,
                 healthCertDaysRemaining = daysRemaining,
-                isHealthCertExpiringSoon = daysRemaining != null && daysRemaining < 7
+                isHealthCertExpiringSoon = daysRemaining != null && daysRemaining in 0..7
             )
         }
     }
@@ -189,7 +189,7 @@ class MorningCheckUseCase @Inject constructor(
 
     fun calculateHealthCertStatus(remainingDays: Int?): HealthCertStatus {
         return when {
-            remainingDays == null -> HealthCertStatus.VALID
+            remainingDays == null -> HealthCertStatus.NOT_PROVIDED
             remainingDays < 0 -> HealthCertStatus.EXPIRED
             remainingDays <= 7 -> HealthCertStatus.EXPIRING_SOON
             else -> HealthCertStatus.VALID
@@ -222,6 +222,7 @@ class MorningCheckUseCase @Inject constructor(
         temperature: Float,
         isTempNormal: Boolean,
         handCheckResult: HandCheckResult,
+        handAbnormalTypes: List<String> = emptyList(),
         symptoms: List<SymptomType>,
         healthCertStatus: HealthCertStatus,
         faceImagePath: String? = null,
@@ -245,6 +246,7 @@ class MorningCheckUseCase @Inject constructor(
             isPassed = isPassed,
             handStatus = if (handCheckResult.palmNormal && handCheckResult.backNormal)
                 HandStatus.NORMAL else HandStatus.ABNORMAL,
+            handAbnormalTypes = handAbnormalTypes,
             healthCertStatus = healthCertStatus,
             symptomFlags = symptoms,
             faceImagePath = faceImagePath,
@@ -266,8 +268,8 @@ class MorningCheckUseCase @Inject constructor(
         return isTempNormal &&
                 handCheckResult.palmNormal &&
                 handCheckResult.backNormal &&
-                healthCertStatus != HealthCertStatus.EXPIRED &&
-                !symptoms.contains(SymptomType.FEVER)
+                healthCertStatus in PASSING_HEALTH_CERT_STATUSES &&
+                symptoms.isEmpty()
     }
 
     suspend fun checkTodayRecord(userId: Long): Result<Record?> {
@@ -280,17 +282,21 @@ class MorningCheckUseCase @Inject constructor(
         val healthCertEndDate = user?.healthCertEndDate
         val remainingDays = healthCertEndDate?.let { user.getHealthCertDaysRemaining() }?.toInt()
 
-        val healthCertStatus = when {
-            remainingDays == null -> HealthCertStatus.VALID
-            remainingDays < 0 -> HealthCertStatus.EXPIRED
-            remainingDays <= 7 -> HealthCertStatus.EXPIRING_SOON
-            else -> HealthCertStatus.VALID
-        }
+        val healthCertStatus = calculateHealthCertStatus(remainingDays)
 
-        val isAllowedToContinue = healthCertStatus != HealthCertStatus.EXPIRED
+        val isAllowedToContinue = healthCertStatus in PASSING_HEALTH_CERT_STATUSES
 
         if (!isAllowedToContinue) {
-            speakHealthCertExpired()
+            voiceService.speak(
+                when (healthCertStatus) {
+                    HealthCertStatus.EXPIRED -> "健康证已过期"
+                    HealthCertStatus.NOT_PROVIDED -> "未录入健康证"
+                    HealthCertStatus.REVOKED -> "健康证已吊销"
+                    HealthCertStatus.NOT_CHECKED -> "健康证未检查"
+                    HealthCertStatus.UNKNOWN -> "健康证状态未知"
+                    else -> "健康证状态异常"
+                }
+            )
         } else if (remainingDays != null && remainingDays <= 7) {
             speakHealthCertWarning()
         }
@@ -307,7 +313,11 @@ class MorningCheckUseCase @Inject constructor(
             message = when (healthCertStatus) {
                 HealthCertStatus.EXPIRED -> "健康证已过期，禁止晨检"
                 HealthCertStatus.EXPIRING_SOON -> "欢迎，$userName，健康证即将到期"
-                else -> "欢迎，$userName"
+                HealthCertStatus.VALID -> "欢迎，$userName"
+                HealthCertStatus.NOT_PROVIDED -> "未录入健康证，禁止晨检"
+                HealthCertStatus.REVOKED -> "健康证已吊销，禁止晨检"
+                HealthCertStatus.NOT_CHECKED -> "健康证未检查，禁止晨检"
+                HealthCertStatus.UNKNOWN -> "健康证状态未知，禁止晨检"
             }
         )
     }
@@ -358,6 +368,10 @@ class MorningCheckUseCase @Inject constructor(
 
     companion object {
         const val TEMP_THRESHOLD = 37.3f
+        private val PASSING_HEALTH_CERT_STATUSES = setOf(
+            HealthCertStatus.VALID,
+            HealthCertStatus.EXPIRING_SOON
+        )
     }
 }
 

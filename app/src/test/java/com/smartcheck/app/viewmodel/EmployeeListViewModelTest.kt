@@ -3,11 +3,15 @@ package com.smartcheck.app.viewmodel
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.smartcheck.app.domain.model.User
 import com.smartcheck.app.domain.repository.IUserRepository
+import com.smartcheck.app.data.sync.EmployeeSyncEngine
+import com.smartcheck.app.data.sync.EmployeeSyncRepository
+import com.smartcheck.app.data.sync.SyncEngineStatus
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -29,13 +33,20 @@ class EmployeeListViewModelTest {
     private val testDispatcher = UnconfinedTestDispatcher()
 
     private lateinit var userRepository: IUserRepository
+    private lateinit var syncRepo: EmployeeSyncRepository
+    private lateinit var syncEngine: EmployeeSyncEngine
     private val usersFlow = MutableStateFlow<List<User>>(emptyList())
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         userRepository = mockk()
+        syncRepo = mockk(relaxed = true)
+        syncEngine = mockk(relaxed = true)
         every { userRepository.observeAllUsers() } returns usersFlow
+        every { syncEngine.syncState } returns MutableStateFlow(SyncEngineStatus.IDLE)
+        every { syncEngine.syncError } returns MutableStateFlow(null)
+        every { syncRepo.observeSyncState() } returns flowOf(null)
     }
 
     @After
@@ -43,7 +54,7 @@ class EmployeeListViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = EmployeeListViewModel(userRepository)
+    private fun createViewModel() = EmployeeListViewModel(userRepository, syncRepo, syncEngine)
 
     private fun buildUser(id: Long, name: String, employeeId: String) =
         User(id = id, name = name, employeeId = employeeId)

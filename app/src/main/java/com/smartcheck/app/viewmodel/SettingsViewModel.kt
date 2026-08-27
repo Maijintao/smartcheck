@@ -110,8 +110,14 @@ class SettingsViewModel @Inject constructor(
     fun clearOldRecordsLowSpace(days: Int = 30) {
         viewModelScope.launch(Dispatchers.IO) {
             val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days.toLong())
-            FileUtil.clearOldRecords(appContext, days)
-            recordRepository.deleteOldRecords(cutoff)
+            val uploadedRecords = recordRepository.getOldUploadedRecords(cutoff)
+            uploadedRecords
+                .flatMap { listOfNotNull(it.faceImagePath, it.handPalmPath, it.handBackPath) }
+                .distinct()
+                .forEach { imagePath ->
+                    FileUtil.getRecordImageFile(appContext, imagePath)?.takeIf { it.exists() }?.delete()
+                }
+            recordRepository.deleteOldUploadedRecords(cutoff)
         }
     }
 }

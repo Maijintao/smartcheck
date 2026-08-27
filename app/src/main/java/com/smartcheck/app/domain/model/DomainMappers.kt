@@ -53,6 +53,8 @@ fun User.toEntity(): UserEntity = UserEntity(
 
 fun RecordEntity.toDomain(): Record = Record(
     id = id,
+    recordUuid = recordUuid,
+    uploadDeviceId = uploadDeviceId,
     userId = userId,
     userName = userName,
     employeeId = employeeId,
@@ -61,6 +63,7 @@ fun RecordEntity.toDomain(): Record = Record(
     isHandNormal = isHandNormal,
     isPassed = isPassed,
     handStatus = handStatus.toHandStatus(),
+    handAbnormalTypes = handAbnormalTypes.toStringList(),
     healthCertStatus = healthCertStatus.toHealthCertStatus(),
     symptomFlags = symptomFlags.toSymptomTypeList(),
     faceImagePath = faceImagePath,
@@ -68,11 +71,17 @@ fun RecordEntity.toDomain(): Record = Record(
     handBackPath = handBackPath,
     checkTime = checkTime,
     remark = remark,
-    isUploaded = isUploaded
+    isUploaded = isUploaded,
+    uploadStatus = uploadStatus.toUploadStatus(),
+    uploadRetryCount = uploadRetryCount,
+    nextUploadAttemptAt = nextUploadAttemptAt,
+    uploadLastError = uploadLastError
 )
 
 fun Record.toEntity(): RecordEntity = RecordEntity(
     id = id,
+    recordUuid = recordUuid,
+    uploadDeviceId = uploadDeviceId,
     userId = userId,
     userName = userName,
     employeeId = employeeId,
@@ -81,6 +90,7 @@ fun Record.toEntity(): RecordEntity = RecordEntity(
     isHandNormal = isHandNormal,
     isPassed = isPassed,
     handStatus = handStatus.name,
+    handAbnormalTypes = handAbnormalTypes.joinToString(","),
     healthCertStatus = healthCertStatus.name,
     symptomFlags = symptomFlags.joinToString(",") { it.name },
     faceImagePath = faceImagePath,
@@ -88,7 +98,11 @@ fun Record.toEntity(): RecordEntity = RecordEntity(
     handBackPath = handBackPath,
     checkTime = checkTime,
     remark = remark,
-    isUploaded = isUploaded
+    isUploaded = isUploaded,
+    uploadStatus = uploadStatus.name,
+    uploadRetryCount = uploadRetryCount,
+    nextUploadAttemptAt = nextUploadAttemptAt,
+    uploadLastError = uploadLastError
 )
 
 private fun String.toHandStatus(): HandStatus = try {
@@ -101,6 +115,18 @@ private fun String.toHealthCertStatus(): HealthCertStatus = try {
     HealthCertStatus.valueOf(this)
 } catch (e: IllegalArgumentException) {
     HealthCertStatus.VALID
+}
+
+private fun String.toUploadStatus(): UploadStatus = try {
+    UploadStatus.valueOf(this)
+} catch (e: IllegalArgumentException) {
+    UploadStatus.PENDING
+}
+
+private fun String.toStringList(): List<String> = if (isBlank()) {
+    emptyList()
+} else {
+    split(",").map { it.trim() }.filter { it.isNotEmpty() }
 }
 
 private fun String.toSymptomTypeList(): List<SymptomType> = if (this.isEmpty()) {

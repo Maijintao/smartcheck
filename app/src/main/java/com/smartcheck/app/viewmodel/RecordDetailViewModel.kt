@@ -53,11 +53,14 @@ class RecordDetailViewModel @Inject constructor(
             else -> HandStatus.NOT_CHECKED
         }
         val isHandNormal = parsedHandStatus == HandStatus.NORMAL
-        val isPassed = isTempNormal && isHandNormal
 
         val parsedHealthCertStatus = when (healthCertStatus.trim().uppercase()) {
             "EXPIRED", "过期", "已过期" -> HealthCertStatus.EXPIRED
             "EXPIRING_SOON", "临期", "即将过期", "快过期" -> HealthCertStatus.EXPIRING_SOON
+            "NOT_PROVIDED", "未录入" -> HealthCertStatus.NOT_PROVIDED
+            "REVOKED", "已吊销" -> HealthCertStatus.REVOKED
+            "NOT_CHECKED", "未检查" -> HealthCertStatus.NOT_CHECKED
+            "UNKNOWN", "未知" -> HealthCertStatus.UNKNOWN
             else -> HealthCertStatus.VALID
         }
         val parsedSymptomFlags = symptomFlags.split(",", "，", "、").mapNotNull {
@@ -75,6 +78,9 @@ class RecordDetailViewModel @Inject constructor(
                 else -> null
             }
         }
+        val isHealthCertValid = parsedHealthCertStatus == HealthCertStatus.VALID ||
+            parsedHealthCertStatus == HealthCertStatus.EXPIRING_SOON
+        val isPassed = isTempNormal && isHandNormal && isHealthCertValid && parsedSymptomFlags.isEmpty()
         
         val updated = current.copy(
             temperature = temperature,
@@ -82,13 +88,18 @@ class RecordDetailViewModel @Inject constructor(
             isHandNormal = isHandNormal,
             isPassed = isPassed,
             handStatus = parsedHandStatus,
+            handAbnormalTypes = when (parsedHandStatus) {
+                HandStatus.NORMAL, HandStatus.NOT_CHECKED -> emptyList()
+                HandStatus.ABNORMAL -> current.handAbnormalTypes.ifEmpty { listOf("foreign") }
+            },
             healthCertStatus = parsedHealthCertStatus,
             symptomFlags = parsedSymptomFlags,
             remark = remark
         )
         viewModelScope.launch {
-            recordRepository.updateRecord(updated)
-            _record.value = updated
+            recordRepository.updateRecord(updated).onSuccess {
+                _record.value = updated
+            }
         }
     }
 }

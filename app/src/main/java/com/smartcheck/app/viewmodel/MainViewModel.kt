@@ -729,12 +729,7 @@ class MainViewModel @Inject constructor(
                 val userResult = userRepository.getUserById(state.currentUserId)
                 val user = userResult.getOrNull()
 
-                val healthCertStatus = when {
-                    state.healthCertDaysRemaining == null -> HealthCertStatus.VALID
-                    state.healthCertDaysRemaining < 0 -> HealthCertStatus.EXPIRED
-                    state.healthCertDaysRemaining <= 7 -> HealthCertStatus.EXPIRING_SOON
-                    else -> HealthCertStatus.VALID
-                }
+                val healthCertStatus = morningCheckUseCase.calculateHealthCertStatus(state.healthCertDaysRemaining)
 
                 // 手掌/手背独立判定
                 val handCheckResult = HandCheckResult(
@@ -759,6 +754,7 @@ class MainViewModel @Inject constructor(
                     temperature = state.currentTemp,
                     isTempNormal = isTempNormal,
                     handCheckResult = handCheckResult,
+                    handAbnormalTypes = state.handDetectionResults,
                     symptoms = symptoms,
                     healthCertStatus = healthCertStatus,
                     faceImagePath = currentFacePath,
@@ -770,7 +766,7 @@ class MainViewModel @Inject constructor(
                     val finalRecord = if (remark.isNotBlank()) savedRecord.copy(remark = remark) else savedRecord
                     // 如果有 remark，更新数据库中的记录
                     if (remark.isNotBlank()) {
-                        recordRepository.saveRecord(finalRecord)
+                        recordRepository.updateRecord(finalRecord)
                     }
                     Timber.tag("MainViewModel").d("Record saved: $finalRecord")
                     runCatching {
@@ -1050,12 +1046,7 @@ class MainViewModel @Inject constructor(
                 val userResult = userRepository.getUserById(state.currentUserId)
                 val user = userResult.getOrNull()
 
-                val healthCertStatus = when {
-                    state.healthCertDaysRemaining == null -> HealthCertStatus.VALID
-                    state.healthCertDaysRemaining < 0 -> HealthCertStatus.EXPIRED
-                    state.healthCertDaysRemaining <= 7 -> HealthCertStatus.EXPIRING_SOON
-                    else -> HealthCertStatus.VALID
-                }
+                val healthCertStatus = morningCheckUseCase.calculateHealthCertStatus(state.healthCertDaysRemaining)
 
                 val actualUserName = state.currentUserName.takeIf { it.isNotBlank() }
                     ?: user?.name?.takeIf { it.isNotBlank() }
@@ -1075,6 +1066,7 @@ class MainViewModel @Inject constructor(
                         isHandNormal -> HandStatus.NORMAL
                         else -> HandStatus.ABNORMAL
                     },
+                    handAbnormalTypes = state.handDetectionResults,
                     healthCertStatus = healthCertStatus,
                     symptomFlags = emptyList(),
                     faceImagePath = currentFacePath,

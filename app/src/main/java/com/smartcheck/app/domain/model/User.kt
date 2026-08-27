@@ -1,5 +1,10 @@
 package com.smartcheck.app.domain.model
 
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+
 data class User(
     val id: Long = 0,
     val name: String,
@@ -26,9 +31,7 @@ data class User(
     val syncStatus: String = "SYNCED"
 ) {
     fun getHealthCertStatus(): HealthCertStatus {
-        val endDate = healthCertEndDate ?: return HealthCertStatus.EXPIRED
-        val now = System.currentTimeMillis()
-        val daysRemaining = (endDate - now) / (24 * 60 * 60 * 1000)
+        val daysRemaining = getHealthCertDaysRemaining() ?: return HealthCertStatus.NOT_PROVIDED
 
         return when {
             daysRemaining < 0 -> HealthCertStatus.EXPIRED
@@ -39,8 +42,9 @@ data class User(
 
     fun getHealthCertDaysRemaining(): Long? {
         val endDate = healthCertEndDate ?: return null
-        val now = System.currentTimeMillis()
-        return (endDate - now) / (24 * 60 * 60 * 1000)
+        val zoneId = ZoneId.systemDefault()
+        val endDateLocal = Instant.ofEpochMilli(endDate).atZone(zoneId).toLocalDate()
+        return ChronoUnit.DAYS.between(LocalDate.now(zoneId), endDateLocal)
     }
 
     override fun equals(other: Any?): Boolean {

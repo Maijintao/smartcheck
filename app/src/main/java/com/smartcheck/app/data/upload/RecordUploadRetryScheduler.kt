@@ -86,7 +86,7 @@ class RecordUploadRetryScheduler @Inject constructor(
         }
 
         val hasPending = withContext(Dispatchers.IO) {
-            recordDao.hasUnuploadedRecords()
+            recordDao.hasPendingUploads(System.currentTimeMillis())
         }
         if (!hasPending) {
             Timber.d("$TAG: no pending records, skip")

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartcheck.app.data.repository.HardwareRepository
 import com.smartcheck.app.data.sync.EmployeeSyncEngine
 import com.smartcheck.app.data.sync.EmployeeSyncRepository
 import com.smartcheck.app.domain.model.User
@@ -21,9 +22,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 @HiltViewModel
@@ -33,6 +37,7 @@ class EmployeeDetailViewModel @Inject constructor(
     private val faceEngine: FaceEngine,
     private val syncRepo: EmployeeSyncRepository,
     private val syncEngine: EmployeeSyncEngine,
+    private val hardwareRepository: HardwareRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -49,6 +54,9 @@ class EmployeeDetailViewModel @Inject constructor(
 
     private val _certBitmap = MutableStateFlow<Bitmap?>(null)
     val certBitmap: StateFlow<Bitmap?> = _certBitmap.asStateFlow()
+
+    private val healthCertLightMutex = Mutex()
+    private val healthCertLightRequest = AtomicLong(0)
 
     init {
         if (userId != null) {
@@ -196,6 +204,36 @@ class EmployeeDetailViewModel @Inject constructor(
 
     fun updateCertBitmap(bitmap: Bitmap?) {
         _certBitmap.value = bitmap
+    }
+
+    fun startHealthCertCaptureLight() {
+        val requestId = healthCertLightRequest.incrementAndGet()
+        viewModelScope.launch(Dispatchers.IO) {
+            healthCertLightMutex.withLock {
+                if (requestId != healthCertLightRequest.get()) return@withLock
+                val lightOn = hardwareRepository.turnOnHandLight()
+                if (lightOn) {
+                    hardwareRepository.turnOffFaceLight()
+                } else {
+                    Timber.w("Failed to turn on health certificate capture light")
+                }
+                if (requestId != healthCertLightRequest.get()) {
+                    hardwareRepository.turnOffHandLight()
+                    hardwareRepository.turnOffAllLights()
+                }
+            }
+        }
+    }
+
+    fun stopHealthCertCaptureLight() {
+        val requestId = healthCertLightRequest.incrementAndGet()
+        viewModelScope.launch(Dispatchers.IO) {
+            healthCertLightMutex.withLock {
+                if (requestId != healthCertLightRequest.get()) return@withLock
+                hardwareRepository.turnOffHandLight()
+                hardwareRepository.turnOffAllLights()
+            }
+        }
     }
 
     fun saveEmployee(
@@ -376,6 +414,13 @@ class EmployeeDetailViewModel @Inject constructor(
             val targetH = (h * scale).toInt().coerceAtLeast(1)
             Bitmap.createScaledBitmap(argb, targetW, targetH, true)
         }
+    }
+
+    override fun onCleared() {
+        healthCertLightRequest.incrementAndGet()
+        hardwareRepository.turnOffHandLight()
+        hardwareRepository.turnOffAllLights()
+        super.onCleared()
     }
 
     sealed interface UiEvent {

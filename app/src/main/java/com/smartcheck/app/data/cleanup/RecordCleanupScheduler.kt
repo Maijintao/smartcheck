@@ -79,12 +79,16 @@ class RecordCleanupScheduler @Inject constructor(
     private suspend fun performCleanup() = withContext(Dispatchers.IO) {
         val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(RETENTION_DAYS.toLong())
 
-        // 1. 删除已上传的旧数据库记录
+        // 只删除已成功上传记录的图片，待上传或失败记录的证据文件必须保留。
+        val uploadedRecords = recordDao.getOldUploadedRecords(cutoff)
+        uploadedRecords
+            .flatMap { listOfNotNull(it.faceImagePath, it.handPalmPath, it.handBackPath) }
+            .distinct()
+            .forEach { imagePath ->
+                FileUtil.getRecordImageFile(context, imagePath)?.takeIf { it.exists() }?.delete()
+            }
+
         recordDao.deleteOldUploadedRecords(cutoff)
         Timber.d("$TAG: deleted uploaded records older than ${RETENTION_DAYS} days (cutoff=$cutoff)")
-
-        // 2. 清理旧图片文件
-        FileUtil.clearOldRecords(context, RETENTION_DAYS)
-        Timber.d("$TAG: cleaned image files older than ${RETENTION_DAYS} days")
     }
 }

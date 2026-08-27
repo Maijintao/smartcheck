@@ -17,22 +17,9 @@ import javax.inject.Singleton
 
 @Singleton
 class AdminAuthRepository @Inject constructor(
-    @ApplicationContext private val context: Context
-) : IAdminAuthService {
-
-    private var _systemUserDao: SystemUserDao? = null
+    @ApplicationContext private val context: Context,
     private val systemUserDao: SystemUserDao
-        get() {
-            if (_systemUserDao == null) {
-                val db = androidx.room.Room.databaseBuilder(
-                    context,
-                    com.smartcheck.app.data.db.AppDatabase::class.java,
-                    "smartcheck_db"
-                ).build()
-                _systemUserDao = db.systemUserDao()
-            }
-            return _systemUserDao!!
-        }
+) : IAdminAuthService {
 
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 

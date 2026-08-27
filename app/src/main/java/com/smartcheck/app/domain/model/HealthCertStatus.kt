@@ -3,5 +3,9 @@ package com.smartcheck.app.domain.model
 enum class HealthCertStatus {
     VALID,
     EXPIRING_SOON,
-    EXPIRED
+    EXPIRED,
+    NOT_PROVIDED,
+    REVOKED,
+    NOT_CHECKED,
+    UNKNOWN
 }

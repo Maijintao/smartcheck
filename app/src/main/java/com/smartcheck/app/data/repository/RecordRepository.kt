@@ -29,7 +29,7 @@ class RecordRepository @Inject constructor(
 
     suspend fun insertRecord(record: RecordEntity): Long = recordDao.insertRecord(record)
 
-    suspend fun updateRecordEntity(record: RecordEntity) = recordDao.updateRecord(record)
+    suspend fun updateRecordEntity(record: RecordEntity): Boolean = recordDao.updateRecordBeforeUpload(record)
 
     override fun observeRecentRecords(limit: Int): Flow<List<Record>> {
         return recordDao.getRecentRecords(limit).map { entities ->
@@ -137,8 +137,11 @@ class RecordRepository @Inject constructor(
 
     override suspend fun updateRecord(record: Record): Result<Unit> {
         return try {
-            recordDao.updateRecord(record.toEntity())
-            Result.success(Unit)
+            if (recordDao.updateRecordBeforeUpload(record.toEntity())) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException("晨检记录开始上传后不能修改"))
+            }
         } catch (e: Exception) {
             Result.failure(AppError.UnknownError(e.message ?: "updateRecord failed"))
         }
@@ -176,7 +179,15 @@ class RecordRepository @Inject constructor(
     }
 
     suspend fun getUnuploadedRecords(): List<RecordEntity> {
-        return recordDao.getUnuploadedRecords()
+        return recordDao.getPendingUploads(System.currentTimeMillis())
+    }
+
+    suspend fun getOldUploadedRecords(beforeTime: Long): List<RecordEntity> {
+        return recordDao.getOldUploadedRecords(beforeTime)
+    }
+
+    suspend fun deleteOldUploadedRecords(beforeTime: Long) {
+        recordDao.deleteOldUploadedRecords(beforeTime)
     }
 
     suspend fun markAsUploaded(recordId: Long) {

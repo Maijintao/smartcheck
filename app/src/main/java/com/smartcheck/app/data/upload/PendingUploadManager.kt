@@ -1,6 +1,7 @@
 package com.smartcheck.app.data.upload
 
 import com.smartcheck.app.data.db.RecordDao
+import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.domain.model.toDomain
 import com.smartcheck.app.data.repository.SettingsRepository
 import com.smartcheck.app.utils.DeviceAuth
@@ -13,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +26,11 @@ class PendingUploadManager @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val appScope: CoroutineScope
 ) {
+    companion object {
+        private const val INITIAL_RETRY_DELAY_MS = 60_000L
+        private const val MAX_RETRY_DELAY_MS = 60 * 60_000L
+    }
+
     private val isProcessing = AtomicBoolean(false)
 
     fun enqueue(recordId: Long) {
@@ -39,8 +46,13 @@ class PendingUploadManager @Inject constructor(
         }
 
         try {
+            if (settingsRepository.platformUrl.value.isBlank() || settingsRepository.apiKey.value.isBlank()) {
+                Timber.d("Platform not configured, keeping pending uploads queued")
+                return
+            }
+
             val pendingRecords = withContext(Dispatchers.IO) {
-                recordDao.getUnuploadedRecords()
+                recordDao.getPendingUploads(System.currentTimeMillis())
             }
 
             if (pendingRecords.isEmpty()) {
@@ -51,14 +63,28 @@ class PendingUploadManager @Inject constructor(
             Timber.d("Found ${pendingRecords.size} pending records to upload")
 
             // 优先使用用户配置的设备ID，其次 MAC 地址，最后回退到自动生成的设备ID
-            val deviceId = settingsRepository.deviceId.value.takeIf { it.isNotBlank() }
+            val currentDeviceId = settingsRepository.deviceId.value.takeIf { it.isNotBlank() }
                 ?: DeviceAuth.getCurrentDeviceMac()
                 ?: DeviceInfo.getDeviceId(context)
 
-            for (entity in pendingRecords) {
+            for (pendingEntity in pendingRecords) {
                 try {
+                    val recordUuid = pendingEntity.recordUuid.ifBlank { UUID.randomUUID().toString() }
+                    val uploadDeviceId = pendingEntity.uploadDeviceId.ifBlank { currentDeviceId }
+                    if (pendingEntity.uploadDeviceId.isBlank()) {
+                        withContext(Dispatchers.IO) {
+                            recordDao.claimUploadIdentity(pendingEntity.id, recordUuid, uploadDeviceId)
+                        }
+                    }
+
+                    // 认领上传身份后重新读取，确保首次发送与之后重试使用完全相同的业务内容。
+                    val entity = withContext(Dispatchers.IO) {
+                        recordDao.getRecordById(pendingEntity.id)
+                    } ?: continue
+                    if (entity.uploadDeviceId.isBlank()) continue
+
                     val record = entity.toDomain()
-                    val result = cloudRecordService.uploadToPlatform(record, deviceId)
+                    val result = cloudRecordService.uploadToPlatform(record, entity.uploadDeviceId)
 
                     result.onSuccess {
                         withContext(Dispatchers.IO) {
@@ -66,22 +92,17 @@ class PendingUploadManager @Inject constructor(
                         }
                         Timber.d("Record uploaded successfully: id=${entity.id}")
                     }.onFailure { e ->
-                        // 平台整体不可达（连接/超时/DNS）时，后续记录大概率也失败，提前结束本轮留待下轮重试
-                        if (isPlatformUnreachable(e)) {
-                            Timber.w(e, "Platform unreachable at record id=${entity.id}, abort this round and retry later")
+                        if (e is RetryableUploadException) {
+                            markRetryableFailure(entity, e)
+                            Timber.w(e, "Temporary upload failure for record id=${entity.id}; retry scheduled")
                             return
                         }
-                        // 单条业务错误（如 4xx / 平台返回 code!=200）：跳过该条，继续尝试后续记录
-                        Timber.w(e, "Upload failed for record id=${entity.id}, skip and continue")
+                        markPermanentFailure(entity.id, e)
                     }
                 } catch (e: java.util.concurrent.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    if (isPlatformUnreachable(e)) {
-                        Timber.w(e, "Platform unreachable (exception) at record id=${entity.id}, abort this round and retry later")
-                        return
-                    }
-                    Timber.w(e, "Upload exception for record id=${entity.id}, skip and continue")
+                    markPermanentFailure(pendingEntity.id, e)
                 }
             }
 
@@ -91,25 +112,24 @@ class PendingUploadManager @Inject constructor(
         }
     }
 
-    /**
-     * 判断异常是否属于「平台整体不可达」：连接被拒绝、DNS 解析失败、网络/请求超时、无路由等。
-     * 连接类异常与平台 5xx 意味着平台整体断联，后续记录大概率同样失败，应提前结束本轮、留待下轮重试。
-     * HTTP 4xx / 平台业务校验错误按单条问题跳过，避免一条坏数据堵住整个队列。
-     */
-    private fun isPlatformUnreachable(e: Throwable): Boolean {
-        var cause: Throwable? = e
-        while (cause != null) {
-            when (cause) {
-                is java.net.ConnectException,
-                is java.net.UnknownHostException,
-                is java.net.NoRouteToHostException,
-                is java.net.SocketTimeoutException,
-                is java.net.SocketException,
-                is io.ktor.client.plugins.HttpRequestTimeoutException,
-                is PlatformUnavailableException -> return true
-            }
-            cause = cause.cause
+    private suspend fun markRetryableFailure(entity: RecordEntity, error: Throwable) {
+        val retryCount = entity.uploadRetryCount + 1
+        val shift = (retryCount - 1).coerceAtMost(6)
+        val retryDelay = (INITIAL_RETRY_DELAY_MS * (1L shl shift)).coerceAtMost(MAX_RETRY_DELAY_MS)
+        withContext(Dispatchers.IO) {
+            recordDao.markRetryableFailure(
+                recordId = entity.id,
+                retryCount = retryCount,
+                nextAttemptAt = System.currentTimeMillis() + retryDelay,
+                error = error.message.orEmpty()
+            )
         }
-        return false
+    }
+
+    private suspend fun markPermanentFailure(recordId: Long, error: Throwable) {
+        withContext(Dispatchers.IO) {
+            recordDao.markPermanentFailure(recordId, error.message.orEmpty())
+        }
+        Timber.e(error, "Permanent upload failure for record id=$recordId; automatic retry stopped")
     }
 }

@@ -39,6 +39,24 @@ interface RecordDao {
     @Update
     suspend fun updateRecord(record: RecordEntity)
 
+    @Transaction
+    suspend fun updateRecordBeforeUpload(record: RecordEntity): Boolean {
+        val current = getRecordById(record.id) ?: return false
+        if (current.uploadStatus != "PENDING" || current.uploadDeviceId.isNotBlank()) return false
+        updateRecord(
+            record.copy(
+                recordUuid = current.recordUuid,
+                uploadDeviceId = current.uploadDeviceId,
+                isUploaded = current.isUploaded,
+                uploadStatus = current.uploadStatus,
+                uploadRetryCount = current.uploadRetryCount,
+                nextUploadAttemptAt = current.nextUploadAttemptAt,
+                uploadLastError = current.uploadLastError,
+            )
+        )
+        return true
+    }
+
     @Query("SELECT * FROM check_records WHERE id = :recordId")
     suspend fun getRecordById(recordId: Long): RecordEntity?
     
@@ -51,12 +69,56 @@ interface RecordDao {
     @Query("DELETE FROM check_records")
     suspend fun deleteAllRecords()
 
-    @Query("SELECT * FROM check_records WHERE isUploaded = 0 ORDER BY checkTime ASC")
-    suspend fun getUnuploadedRecords(): List<RecordEntity>
+    @Query("""
+        SELECT * FROM check_records
+        WHERE uploadStatus IN ('PENDING', 'RETRYING')
+          AND nextUploadAttemptAt <= :now
+        ORDER BY checkTime ASC
+    """)
+    suspend fun getPendingUploads(now: Long): List<RecordEntity>
 
-    @Query("SELECT EXISTS(SELECT 1 FROM check_records WHERE isUploaded = 0 LIMIT 1)")
-    suspend fun hasUnuploadedRecords(): Boolean
+    @Query("""
+        SELECT EXISTS(
+            SELECT 1 FROM check_records
+            WHERE uploadStatus IN ('PENDING', 'RETRYING')
+              AND nextUploadAttemptAt <= :now
+            LIMIT 1
+        )
+    """)
+    suspend fun hasPendingUploads(now: Long): Boolean
 
-    @Query("UPDATE check_records SET isUploaded = 1 WHERE id = :recordId")
+    @Query("""
+        UPDATE check_records
+        SET recordUuid = :recordUuid, uploadDeviceId = :deviceId
+        WHERE id = :recordId AND uploadStatus = 'PENDING' AND uploadDeviceId = ''
+    """)
+    suspend fun claimUploadIdentity(recordId: Long, recordUuid: String, deviceId: String): Int
+
+    @Query("""
+        UPDATE check_records
+        SET isUploaded = 1, uploadStatus = 'UPLOADED', nextUploadAttemptAt = 0, uploadLastError = NULL
+        WHERE id = :recordId
+    """)
     suspend fun markAsUploaded(recordId: Long)
+
+    @Query("""
+        UPDATE check_records
+        SET isUploaded = 0,
+            uploadStatus = 'RETRYING',
+            uploadRetryCount = :retryCount,
+            nextUploadAttemptAt = :nextAttemptAt,
+            uploadLastError = :error
+        WHERE id = :recordId
+    """)
+    suspend fun markRetryableFailure(recordId: Long, retryCount: Int, nextAttemptAt: Long, error: String)
+
+    @Query("""
+        UPDATE check_records
+        SET isUploaded = 0, uploadStatus = 'FAILED', nextUploadAttemptAt = 0, uploadLastError = :error
+        WHERE id = :recordId
+    """)
+    suspend fun markPermanentFailure(recordId: Long, error: String)
+
+    @Query("SELECT * FROM check_records WHERE isUploaded = 1 AND checkTime < :beforeTime")
+    suspend fun getOldUploadedRecords(beforeTime: Long): List<RecordEntity>
 }

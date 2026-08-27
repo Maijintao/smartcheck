@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
             SyncStateEntity::class,
             DeletedEmployeeVersionEntity::class
         ],
-        version = 10,
+        version = 11,
         exportSchema = false
     )
 abstract class AppDatabase : RoomDatabase() {
@@ -165,6 +165,30 @@ abstract class AppDatabase : RoomDatabase() {
                     deleted_at INTEGER NOT NULL
                 )
             """)
+        }
+
+        val MIGRATION_10_11 = androidx.room.migration.Migration(10, 11) { database ->
+            database.execSQL("ALTER TABLE check_records ADD COLUMN recordUuid TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN uploadDeviceId TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN handAbnormalTypes TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN uploadStatus TEXT NOT NULL DEFAULT 'PENDING'")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN uploadRetryCount INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN nextUploadAttemptAt INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE check_records ADD COLUMN uploadLastError TEXT")
+            database.execSQL("""
+                UPDATE check_records
+                SET recordUuid = lower(hex(randomblob(4))) || '-' ||
+                    lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' ||
+                    substr('89ab', (random() & 3) + 1, 1) || substr(lower(hex(randomblob(2))), 2) || '-' ||
+                    lower(hex(randomblob(6)))
+                WHERE recordUuid = ''
+            """)
+            database.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_check_records_recordUuid ON check_records(recordUuid)"
+            )
+            database.execSQL(
+                "UPDATE check_records SET uploadStatus = CASE WHEN isUploaded = 1 THEN 'UPLOADED' ELSE 'PENDING' END"
+            )
         }
     }
 }

@@ -95,6 +95,10 @@ fun RecordDetailDialog(
         HealthCertStatus.VALID -> Triple(successBg, success, "有效")
         HealthCertStatus.EXPIRING_SOON -> Triple(warningBg, warning, "即将过期")
         HealthCertStatus.EXPIRED -> Triple(dangerBg, danger, "已过期")
+        HealthCertStatus.NOT_PROVIDED -> Triple(dangerBg, danger, "未录入")
+        HealthCertStatus.REVOKED -> Triple(dangerBg, danger, "已吊销")
+        HealthCertStatus.NOT_CHECKED -> Triple(warningBg, warning, "未检查")
+        HealthCertStatus.UNKNOWN -> Triple(warningBg, warning, "未知")
         null -> Triple(primaryLight, primaryBlue, "未知")
     }
 
