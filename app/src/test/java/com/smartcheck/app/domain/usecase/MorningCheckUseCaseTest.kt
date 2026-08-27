@@ -63,7 +63,8 @@ class MorningCheckUseCaseTest {
         assertEquals(userId, result.userId)
         assertEquals(userName, result.userName)
         assertEquals(confidence, result.faceConfidence)
-        coVerify { voiceService.speak("欢迎，$userName") }
+        assertEquals("欢迎，$userName", result.message)
+        coVerify(exactly = 0) { voiceService.speak(any()) }
     }
 
     @Test
@@ -119,14 +120,11 @@ class MorningCheckUseCaseTest {
 
     @Test
     fun `speakSuccess calls voiceService with welcome message`() {
-        // Given
-        val userName = "张三"
-
         // When
-        useCase.speakSuccess(userName)
+        useCase.speakSuccess()
 
         // Then
-        coVerify { voiceService.speak("欢迎，$userName") }
+        coVerify { voiceService.speak("欢迎") }
     }
 
     @Test
@@ -514,7 +512,7 @@ class MorningCheckUseCaseTest {
     fun `speakHealthCertExpired 调用 voiceService`() {
         useCase.speakHealthCertExpired()
 
-        coVerify { voiceService.speak("健康证已过期，禁止晨检") }
+        coVerify { voiceService.speak("健康证已过期") }
     }
 
     @Test
@@ -535,7 +533,7 @@ class MorningCheckUseCaseTest {
     fun `speakHandCheckFail 调用 voiceService`() {
         useCase.speakHandCheckFail()
 
-        coVerify { voiceService.speak("手部检测不合格") }
+        coVerify { voiceService.speak("手部有异物") }
     }
 
     @Test

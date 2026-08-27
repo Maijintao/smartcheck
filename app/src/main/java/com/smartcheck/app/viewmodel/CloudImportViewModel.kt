@@ -8,6 +8,7 @@ import com.smartcheck.app.api.model.CloudStaffItem
 import com.smartcheck.app.api.model.EmployeeImportItem
 import com.smartcheck.app.domain.model.User
 import com.smartcheck.app.domain.repository.IUserRepository
+import com.smartcheck.app.data.remote.CloudApiUrl
 import com.smartcheck.app.data.repository.SettingsRepository
 import com.smartcheck.app.domain.usecase.ImageStorageUseCase
 import com.smartcheck.app.ml.FaceEngine
@@ -137,17 +138,19 @@ class CloudImportViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
             try {
-                val baseUrl = "http://api.kitchen.iyouxin.cn"
-                val endpoint = "/wosapi/YGCJRobotOpenApi/PageStaff"
+                val fetchUrl = CloudApiUrl.buildUrl(
+                    settingsRepository.getCloudBaseUrl(),
+                    CloudApiUrl.EMPLOYEE_ENDPOINT
+                )
 
-                Timber.d("Fetching employees from: $baseUrl$endpoint, deviceSn=${_uiState.value.deviceSn}")
+                Timber.d("Fetching employees from: $fetchUrl, deviceSn=${_uiState.value.deviceSn}")
 
                 // 创建请求体（yg_sn 只通过 header 传递，不在 body 中）
                 // 手动构建 JSON 以避免 encodeDefaults=true 导致多余字段被序列化
                 val jsonBody = """{"pageIndex":${_uiState.value.pageIndex},"pageSize":${getPageSizeInt()}}"""
                 Timber.d("Request JSON: $jsonBody")
 
-                val response = httpClient.post("$baseUrl$endpoint") {
+                val response = httpClient.post(fetchUrl) {
                     header("yg_sn", _uiState.value.deviceSn)
                     contentType(ContentType.Application.Json)
                     setBody(io.ktor.http.content.TextContent(jsonBody, ContentType.Application.Json))
@@ -416,7 +419,7 @@ class CloudImportViewModel @Inject constructor(
         try {
             if (url.isBlank()) return@withContext null
             
-            val fullUrl = if (url.startsWith("http")) url else "http://api.kitchen.iyouxin.cn$url"
+            val fullUrl = CloudApiUrl.resolveUrl(settingsRepository.getCloudBaseUrl(), url)
             Timber.d("Downloading image from: $fullUrl")
             
             val response = httpClient.get(fullUrl) {

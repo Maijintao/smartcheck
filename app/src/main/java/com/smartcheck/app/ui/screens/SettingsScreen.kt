@@ -97,6 +97,8 @@ fun SettingsScreen(
     val adminAvatar by viewModel.adminAvatar.collectAsState()
     val voiceEnabled by viewModel.voiceEnabled.collectAsState()
     val deviceSn by viewModel.deviceSn.collectAsState()
+    val cloudBaseUrl by viewModel.cloudBaseUrl.collectAsState()
+    val cloudConnectionTestState by viewModel.cloudConnectionTestState.collectAsState()
     val context = LocalContext.current
 
     val currentAccount by authViewModel.account.collectAsState()
@@ -122,6 +124,10 @@ fun SettingsScreen(
     var showDialog by remember { mutableStateOf(false) }
     var showUpdateLoading by remember { mutableStateOf(false) }
     var showAvatarMenu by remember { mutableStateOf(false) }
+
+    var showCloudServerDialog by remember { mutableStateOf(false) }
+    var cloudServerValue by remember { mutableStateOf("") }
+    var cloudServerError by remember { mutableStateOf<String?>(null) }
 
     // 密码修改对话框
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -156,6 +162,13 @@ fun SettingsScreen(
         confirmPassword = ""
         passwordError = null
         showPasswordDialog = true
+    }
+
+    fun showCloudServerEditDialog() {
+        cloudServerValue = cloudBaseUrl
+        cloudServerError = null
+        viewModel.clearCloudConnectionTestResult()
+        showCloudServerDialog = true
     }
 
     fun confirmPasswordChange() {
@@ -461,6 +474,25 @@ fun SettingsScreen(
                                 Text(text = "型号: $deviceModel", color = textMuted, fontSize = 13.sp)
                                 Text(text = "v$appVersion", color = textMuted, fontSize = 13.sp)
                             }
+                        },
+                        textMain = textMain,
+                        textMuted = textMuted,
+                        borderColor = borderColor
+                    )
+                    SettingsItem(
+                        title = "业务服务器地址",
+                        subtitle = cloudBaseUrl,
+                        trailing = {
+                            PillButton(
+                                text = "修改",
+                                kind = PillButtonKind.Outline,
+                                primaryBlue = primaryBlue,
+                                primaryLight = primaryLight,
+                                borderColor = borderColor,
+                                danger = danger,
+                                dangerLight = dangerLight,
+                                onClick = { showCloudServerEditDialog() }
+                            )
                         },
                         textMain = textMain,
                         textMuted = textMuted,
@@ -862,6 +894,118 @@ fun SettingsScreen(
         )
     }
 
+    if (showCloudServerDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showCloudServerDialog = false
+                viewModel.clearCloudConnectionTestResult()
+            },
+            title = { Text(text = "业务服务器地址") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.PaddingSmall)) {
+                    OutlinedTextField(
+                        value = cloudServerValue,
+                        onValueChange = {
+                            cloudServerValue = it
+                            cloudServerError = null
+                            viewModel.clearCloudConnectionTestResult()
+                        },
+                        label = { Text("服务器地址") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = cloudServerError != null
+                    )
+
+                    cloudServerError?.let { error ->
+                        Text(
+                            text = error,
+                            color = danger,
+                            fontSize = Dimens.TextSizeSmall
+                        )
+                    }
+
+                    cloudConnectionTestState.message?.let { message ->
+                        Text(
+                            text = message,
+                            color = if (cloudConnectionTestState.isSuccess) primaryBlue else danger,
+                            fontSize = Dimens.TextSizeSmall
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                viewModel.resetCloudBaseUrl()
+                                cloudServerValue = viewModel.defaultCloudBaseUrl
+                                cloudServerError = null
+                                showCloudServerDialog = false
+                            }
+                        ) {
+                            Text(text = "恢复默认", color = textMuted)
+                        }
+                        Button(
+                            onClick = { viewModel.testCloudConnection(cloudServerValue) },
+                            enabled = !cloudConnectionTestState.isTesting,
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryLight)
+                        ) {
+                            if (cloudConnectionTestState.isTesting) {
+                                CircularProgressIndicator(
+                                    color = primaryBlue,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "测试连接",
+                                    tint = primaryBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(Dimens.PaddingSmall))
+                            }
+                            Text(text = "测试连接", color = primaryBlue)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setCloudBaseUrl(cloudServerValue).fold(
+                            onSuccess = {
+                                cloudServerValue = it
+                                cloudServerError = null
+                                showCloudServerDialog = false
+                            },
+                            onFailure = {
+                                cloudServerError = it.message ?: "服务器地址格式错误"
+                            }
+                        )
+                    },
+                    enabled = !cloudConnectionTestState.isTesting,
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
+                ) {
+                    Text(text = "保存", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCloudServerDialog = false
+                        viewModel.clearCloudConnectionTestResult()
+                    }
+                ) {
+                    Text(text = "取消", color = textMuted)
+                }
+            }
+        )
+    }
+
     // 版本历史对话框
     if (showHistoryDialog) {
         AlertDialog(
@@ -1057,7 +1201,10 @@ private fun SettingsItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (leading != null) {
                     Box(modifier = Modifier.padding(end = 14.dp)) {
                         leading()

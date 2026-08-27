@@ -5,6 +5,8 @@ import android.util.Base64
 import com.smartcheck.app.api.model.CloudCheckRecordRequest
 import com.smartcheck.app.api.model.CloudCheckRecordResponse
 import com.smartcheck.app.api.model.HandCheckParam
+import com.smartcheck.app.data.remote.CloudApiUrl
+import com.smartcheck.app.data.repository.SettingsRepository
 import com.smartcheck.app.domain.model.Record
 import com.smartcheck.app.utils.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -22,12 +24,9 @@ import javax.inject.Singleton
 @Singleton
 class CloudRecordService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val settingsRepository: SettingsRepository
 ) {
-    companion object {
-        private const val BASE_URL = "http://api.kitchen.iyouxin.cn"
-        private const val ENDPOINT = "/kitchen/morningCheck/saveData"
-    }
 
     suspend fun uploadCheckRecord(record: Record, deviceSn: String): Result<CloudCheckRecordResponse> {
         return withContext(Dispatchers.IO) {
@@ -82,9 +81,13 @@ class CloudRecordService @Inject constructor(
                     verificationType = 0
                 )
 
-                Timber.d("Sending POST request to: $BASE_URL$ENDPOINT")
+                val uploadUrl = CloudApiUrl.buildUrl(
+                    settingsRepository.getCloudBaseUrl(),
+                    CloudApiUrl.RECORD_UPLOAD_ENDPOINT
+                )
+                Timber.d("Sending POST request to: $uploadUrl")
 
-                val response = httpClient.post("$BASE_URL$ENDPOINT") {
+                val response = httpClient.post(uploadUrl) {
                     contentType(ContentType.Application.Json)
                     setBody(request)
                 }

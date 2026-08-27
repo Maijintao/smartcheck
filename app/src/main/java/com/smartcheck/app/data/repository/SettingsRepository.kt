@@ -1,6 +1,7 @@
 package com.smartcheck.app.data.repository
 
 import android.content.Context
+import com.smartcheck.app.data.remote.CloudApiUrl
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,14 @@ class SettingsRepository @Inject constructor(
 
     private val _deviceSn = MutableStateFlow(prefs.getString(KEY_DEVICE_SN, "") ?: "")
     val deviceSn: StateFlow<String> = _deviceSn.asStateFlow()
+
+    private val _cloudBaseUrl = MutableStateFlow(
+        CloudApiUrl.normalizeBaseUrl(
+            prefs.getString(KEY_CLOUD_BASE_URL, CloudApiUrl.DEFAULT_BASE_URL)
+                ?: CloudApiUrl.DEFAULT_BASE_URL
+        ).getOrDefault(CloudApiUrl.DEFAULT_BASE_URL)
+    )
+    val cloudBaseUrl: StateFlow<String> = _cloudBaseUrl.asStateFlow()
 
     fun setVoiceEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
@@ -78,6 +87,17 @@ class SettingsRepository @Inject constructor(
         _deviceSn.value = value
     }
 
+    fun setCloudBaseUrl(value: String): Result<String> {
+        return CloudApiUrl.normalizeBaseUrl(value).onSuccess { normalizedValue ->
+            prefs.edit().putString(KEY_CLOUD_BASE_URL, normalizedValue).apply()
+            _cloudBaseUrl.value = normalizedValue
+        }
+    }
+
+    fun resetCloudBaseUrl() {
+        setCloudBaseUrl(CloudApiUrl.DEFAULT_BASE_URL)
+    }
+
     fun addDeviceSnHistory(sn: String) {
         if (sn.isBlank()) return
         val current = getDeviceSnHistory().toMutableSet()
@@ -100,6 +120,8 @@ class SettingsRepository @Inject constructor(
 
     fun getDeviceSn(): String = _deviceSn.value
 
+    fun getCloudBaseUrl(): String = _cloudBaseUrl.value
+
     companion object {
         private const val PREF_NAME = "smartcheck_settings"
         private const val KEY_VOICE_ENABLED = "voice_enabled"
@@ -111,5 +133,6 @@ class SettingsRepository @Inject constructor(
         private const val KEY_ADMIN_AVATAR = "admin_avatar"
         private const val KEY_DEVICE_SN = "device_sn"
         private const val KEY_DEVICE_SN_HISTORY = "device_sn_history"
+        private const val KEY_CLOUD_BASE_URL = "cloud_base_url"
     }
 }
