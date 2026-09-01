@@ -27,8 +27,8 @@ class PendingUploadManager @Inject constructor(
     private val appScope: CoroutineScope
 ) {
     companion object {
-        private const val INITIAL_RETRY_DELAY_MS = 60_000L
-        private const val MAX_RETRY_DELAY_MS = 60 * 60_000L
+        private const val MAX_RETRY_DELAY_MS = 5 * 60_000L
+        private val RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 30_000L, 60_000L)
     }
 
     private val isProcessing = AtomicBoolean(false)
@@ -114,8 +114,10 @@ class PendingUploadManager @Inject constructor(
 
     private suspend fun markRetryableFailure(entity: RecordEntity, error: Throwable) {
         val retryCount = entity.uploadRetryCount + 1
-        val shift = (retryCount - 1).coerceAtMost(6)
-        val retryDelay = (INITIAL_RETRY_DELAY_MS * (1L shl shift)).coerceAtMost(MAX_RETRY_DELAY_MS)
+        val retryDelay = (error as? RetryableUploadException)
+            ?.retryAfterMillis
+            ?.coerceIn(0L, MAX_RETRY_DELAY_MS)
+            ?: retryDelayMillis(retryCount)
         withContext(Dispatchers.IO) {
             recordDao.markRetryableFailure(
                 recordId = entity.id,
@@ -124,6 +126,14 @@ class PendingUploadManager @Inject constructor(
                 error = error.message.orEmpty()
             )
         }
+    }
+
+    internal fun retryDelayMillis(retryCount: Int): Long {
+        if (retryCount <= RETRY_DELAYS_MS.size) {
+            return RETRY_DELAYS_MS[(retryCount - 1).coerceAtLeast(0)]
+        }
+        val extraShift = (retryCount - RETRY_DELAYS_MS.size).coerceAtMost(3)
+        return (RETRY_DELAYS_MS.last() * (1L shl extraShift)).coerceAtMost(MAX_RETRY_DELAY_MS)
     }
 
     private suspend fun markPermanentFailure(recordId: Long, error: Throwable) {

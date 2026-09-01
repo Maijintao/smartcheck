@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.db.*
 import com.smartcheck.app.domain.model.User
+import com.smartcheck.app.domain.model.toDomain
 import com.smartcheck.app.domain.model.toEntity
 import com.smartcheck.app.utils.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -259,6 +260,18 @@ class EmployeeSyncRepository @Inject constructor(
         platformVersion: Long
     ) = withContext(Dispatchers.IO) {
         appDatabase.withTransaction {
+            val existing = userDao.getUserByEmployeeId(employeeId)
+            if (existing != null && (
+                    existing.platformVersion == 0L ||
+                        existing.syncStatus in listOf("PENDING_UPLOAD", "CONFLICT", "RECOVERY_REQUIRED")
+                    )) {
+                userDao.updateSyncStatus(employeeId, "RECOVERY_REQUIRED")
+                Timber.w(
+                    "$TAG: 平台删除与本地未同步数据冲突，已保留员工并等待确认: employeeId=$employeeId"
+                )
+                return@withTransaction
+            }
+
             userDao.deleteFromRemote(employeeId)
             deletedVersionDao.insert(DeletedEmployeeVersionEntity(
                 employeeId = employeeId,
@@ -284,6 +297,49 @@ class EmployeeSyncRepository @Inject constructor(
         return syncStateDao.observeState()
     }
 
+    fun observeRecoveryRequiredEmployees(): Flow<List<UserEntity>> {
+        return userDao.observeRecoveryRequiredUsers()
+    }
+
+    /**
+     * 为升级前已存在、但从未取得平台版本号的员工补建上传任务。
+     * 必须在任何平台拉取之前执行，避免平台快照把本地员工误判为已删除。
+     */
+    suspend fun enqueueLocalOnlyEmployeesForUpload(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            var queuedCount = 0
+            for (employee in userDao.getLocalOnlyUsersForUpload()) {
+                if (enqueueEmployeeUpsert(employee)) {
+                    queuedCount++
+                }
+            }
+            Result.success(queuedCount)
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: 为历史本地员工补建上传任务失败")
+            Result.failure(e)
+        }
+    }
+
+    /** 将所有异常保留员工重新作为新增员工上传平台，本地数据始终保留。 */
+    suspend fun restoreRecoveryRequiredEmployees(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            var queuedCount = 0
+            for (employee in userDao.getUsersBySyncStatus("RECOVERY_REQUIRED")) {
+                if (enqueueEmployeeUpsert(employee)) {
+                    queuedCount++
+                }
+            }
+            Result.success(queuedCount)
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: 恢复异常员工失败")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun markRecoveryRequired(employeeId: String) = withContext(Dispatchers.IO) {
+        userDao.updateSyncStatus(employeeId, "RECOVERY_REQUIRED")
+    }
+
     suspend fun getConflictedEmployees(): List<UserEntity> = withContext(Dispatchers.IO) {
         userDao.getUsersBySyncStatus("CONFLICT")
     }
@@ -300,6 +356,61 @@ class EmployeeSyncRepository @Inject constructor(
     private fun sha256OfBytes(bytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun enqueueEmployeeUpsert(employee: UserEntity): Boolean {
+        val storedFaceImagePath = employee.faceImagePath?.takeIf { it.isNotBlank() }
+        val storedCertImagePath = employee.healthCertImagePath.takeIf { it.isNotBlank() }
+        val faceSha256 = storedFaceImagePath?.let { sha256OfFile(it) }
+        val certSha256 = storedCertImagePath?.let { sha256OfFile(it) }
+        val faceImagePath = storedFaceImagePath.takeIf { faceSha256 != null }
+        val certImagePath = storedCertImagePath.takeIf { certSha256 != null }
+        val payload = json.encodeToString(
+            UploadEmployee.serializer(),
+            employee.toDomain().toUploadPayload(
+                faceImagePath = faceImagePath,
+                faceSha256 = faceSha256,
+                certImagePath = certImagePath,
+                certSha256 = certSha256,
+                isNew = true,
+            )
+        )
+        val operationId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        var inserted = false
+
+        appDatabase.withTransaction {
+            if (outboxDao.countActiveUpserts(employee.employeeId) > 0) {
+                userDao.updateSyncStatus(employee.employeeId, "PENDING_UPLOAD")
+                return@withTransaction
+            }
+
+            outboxDao.insert(
+                SyncOutboxEntity(
+                    operationId = operationId,
+                    operationType = "UPSERT",
+                    employeeId = employee.employeeId,
+                    expectedVersion = null,
+                    payloadJson = payload,
+                    faceImageAction = if (faceImagePath != null) "REPLACE" else "CLEAR",
+                    faceImageLocalPath = faceImagePath,
+                    faceImageSha256 = faceSha256,
+                    healthCertImageAction = if (certImagePath != null) "REPLACE" else "CLEAR",
+                    healthCertImageLocalPath = certImagePath,
+                    healthCertImageSha256 = certSha256,
+                    status = "PENDING",
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+            userDao.updateSyncStatus(employee.employeeId, "PENDING_UPLOAD")
+            inserted = true
+        }
+
+        if (inserted) {
+            Timber.i("$TAG: 已补建员工上传任务: employeeId=${employee.employeeId}")
+        }
+        return inserted
     }
 
     /** 判断图片 action */

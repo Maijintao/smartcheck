@@ -44,6 +44,14 @@ interface SyncOutboxDao {
     @Query("SELECT COUNT(*) FROM sync_outbox WHERE status = 'PENDING' OR status = 'IN_PROGRESS'")
     suspend fun countPending(): Int
 
+    @Query("""
+        SELECT COUNT(*) FROM sync_outbox
+        WHERE employee_id = :employeeId
+          AND operation_type = 'UPSERT'
+          AND status IN ('PENDING', 'IN_PROGRESS')
+    """)
+    suspend fun countActiveUpserts(employeeId: String): Int
+
     @Query("DELETE FROM sync_outbox")
     suspend fun deleteAll()
 }

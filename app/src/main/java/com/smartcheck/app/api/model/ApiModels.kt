@@ -437,9 +437,9 @@ data class MorningCheckEmployee(
     @SerialName("health_cert_status") val healthCertStatus: String,
     @SerialName("symptom_flags") val symptomFlags: List<String>,
     @SerialName("remark") val remark: String,
-    @SerialName("photo") val photo: String? = null,
-    @SerialName("hand_palm_photo") val handPalmPhoto: String? = null,
-    @SerialName("hand_back_photo") val handBackPhoto: String? = null
+    @SerialName("photo") val photo: String?,
+    @SerialName("hand_palm_photo") val handPalmPhoto: String?,
+    @SerialName("hand_back_photo") val handBackPhoto: String?
 )
 
 /**

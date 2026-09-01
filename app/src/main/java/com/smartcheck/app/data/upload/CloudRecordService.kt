@@ -13,7 +13,6 @@ import com.smartcheck.app.domain.model.HandStatus
 import com.smartcheck.app.utils.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.*
-import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
@@ -24,7 +23,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
-import java.net.URI
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,13 +34,27 @@ class CloudRecordService @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     companion object {
-        private const val PLATFORM_ENDPOINT = "/api/device/morning-check/upload"
         private const val MAX_IMAGE_DIMENSION = 1280
         private const val MAX_IMAGE_BYTES = 2 * 1024 * 1024
         private const val MAX_BASE64_PAYLOAD_CHARS = 9 * 1024 * 1024
         private const val MAX_REQUEST_BYTES = 10 * 1024 * 1024
+        private const val MAX_DEVICE_ID_LENGTH = 64
+        private const val MAX_EMPLOYEE_ID_LENGTH = 64
+        private const val MAX_EMPLOYEE_NAME_LENGTH = 128
+        private const val MAX_REMARK_LENGTH = 500
+        private const val MIN_TEMPERATURE = 30.0f
+        private const val MAX_TEMPERATURE = 45.0f
+        private const val NORMAL_TEMPERATURE_LIMIT = 37.3f
         private val JPEG_QUALITIES = intArrayOf(80, 70, 60, 50)
         private val ALLOWED_HAND_ABNORMAL_TYPES = setOf("band_aid", "bracelet", "ring", "watch", "foreign")
+        private val PASSING_HEALTH_CERT_STATUSES = setOf("VALID", "EXPIRING_SOON")
+        private val requestJson = Json {
+            encodeDefaults = true
+            explicitNulls = true
+        }
+        private val responseJson = Json {
+            ignoreUnknownKeys = true
+        }
     }
 
     /**
@@ -50,21 +63,21 @@ class CloudRecordService @Inject constructor(
     suspend fun uploadToPlatform(record: Record, deviceId: String): Result<MorningCheckUploadResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val platformUrl = settingsRepository.platformUrl.value.trimEnd('/')
+                val configuredPlatformUrl = settingsRepository.platformUrl.value
                 val apiKey = settingsRepository.apiKey.value
 
-                if (platformUrl.isBlank() || apiKey.isBlank()) {
+                if (configuredPlatformUrl.isBlank() || apiKey.isBlank()) {
                     Timber.d("Platform URL or API Key not configured, skipping upload")
                     return@withContext Result.failure(PermanentUploadException("平台地址或API Key未配置"))
                 }
-                if (!runCatching { URI(platformUrl).scheme.equals("https", ignoreCase = true) }.getOrDefault(false)) {
-                    return@withContext Result.failure(PermanentUploadException("晨检记录上报地址必须使用HTTPS"))
-                }
-                if (deviceId.isBlank() || record.recordUuid.isBlank() || record.employeeId.isBlank()) {
+                val url = try {
+                    PlatformUrlResolver.morningCheckUploadUrl(configuredPlatformUrl)
+                } catch (e: IllegalArgumentException) {
                     return@withContext Result.failure(
-                        PermanentUploadException("device_id、employees[].employee_id和record_uuid不能为空")
+                        PermanentUploadException(e.message ?: "平台地址格式无效", e)
                     )
                 }
+                validateRecord(record, deviceId)?.let { return@withContext Result.failure(it) }
 
                 Timber.d("=== Platform Upload Start ===")
                 Timber.d("Device ID: $deviceId")
@@ -115,7 +128,7 @@ class CloudRecordService @Inject constructor(
                     },
                     handAbnormalTypes = handAbnormalTypes,
                     healthCertStatus = record.healthCertStatus.name,
-                    symptomFlags = record.symptomFlags.map { it.name },
+                    symptomFlags = record.symptomFlags.map { it.name }.distinct(),
                     remark = record.remark,
                     photo = facePhoto,
                     handPalmPhoto = palmPhoto,
@@ -127,8 +140,8 @@ class CloudRecordService @Inject constructor(
                     timestamp = record.checkTime,
                     employees = listOf(employee)
                 )
-                val requestJson = Json.encodeToString(request)
-                if (requestJson.toByteArray(Charsets.UTF_8).size > MAX_REQUEST_BYTES) {
+                val serializedRequest = requestJson.encodeToString(request)
+                if (serializedRequest.toByteArray(Charsets.UTF_8).size > MAX_REQUEST_BYTES) {
                     return@withContext Result.failure(PermanentUploadException("请求总大小超过10MiB"))
                 }
                 Timber.d(
@@ -136,20 +149,27 @@ class CloudRecordService @Inject constructor(
                         "recordUuid=${record.recordUuid}, employeeId=${record.employeeId}"
                 )
 
-                val url = "$platformUrl$PLATFORM_ENDPOINT"
+                val requestId = UUID.randomUUID().toString()
                 Timber.d("POST $url")
 
                 val response = httpClient.post(url) {
                     contentType(ContentType.Application.Json)
                     header("api-key", apiKey)
-                    setBody(requestJson)
+                    header("X-Request-Id", requestId)
+                    setBody(serializedRequest)
                 }
 
-                Timber.d("Response status: ${response.status}")
+                val responseRequestId = response.headers["X-Request-Id"] ?: requestId
+                Timber.d("Response status: ${response.status}, requestId=$responseRequestId")
 
                 if (response.status.value == 200) {
-                    val responseBody = response.body<MorningCheckUploadResponse>()
-                    Timber.d("Response: code=${responseBody.code}, message=${responseBody.message}")
+                    val responseText = response.bodyAsText()
+                    Timber.d("Response body: ${responseText.take(2_000)}, requestId=$responseRequestId")
+                    val responseBody = responseJson.decodeFromString<MorningCheckUploadResponse>(responseText)
+                    Timber.d(
+                        "Response: code=${responseBody.code}, message=${responseBody.message}, " +
+                            "requestId=${responseBody.requestId ?: responseRequestId}"
+                    )
 
                     if (responseBody.isSuccess) {
                         if (responseBody.data?.recordIds?.size != 1) {
@@ -161,7 +181,7 @@ class CloudRecordService @Inject constructor(
                         Result.success(responseBody)
                     } else {
                         Timber.e("=== Platform Upload FAILED: ${responseBody.message} ===")
-                        if (responseBody.code >= 500) {
+                        if (isRetryableBusinessCode(responseBody.code)) {
                             Result.failure(
                                 RetryableUploadException("平台错误 ${responseBody.code}: ${responseBody.message}")
                             )
@@ -180,9 +200,16 @@ class CloudRecordService @Inject constructor(
                             append(responseText.take(2_000))
                         }
                     }
-                    Timber.e("=== Platform Upload HTTP ERROR: $errorMessage ===")
+                    Timber.e("=== Platform Upload HTTP ERROR: $errorMessage, requestId=$responseRequestId ===")
                     if (response.status.value == 408 || response.status.value == 429 || response.status.value >= 500) {
-                        Result.failure(RetryableUploadException(errorMessage))
+                        Result.failure(
+                            RetryableUploadException(
+                                message = errorMessage,
+                                retryAfterMillis = response.headers[HttpHeaders.RetryAfter]
+                                    ?.toLongOrNull()
+                                    ?.times(1_000L)
+                            )
+                        )
                     } else {
                         Result.failure(PermanentUploadException(errorMessage))
                     }
@@ -202,6 +229,59 @@ class CloudRecordService @Inject constructor(
             }
         }
     }
+
+    private fun validateRecord(record: Record, deviceId: String): PermanentUploadException? {
+        val employeeId = record.employeeId.trim()
+        val employeeName = record.userName.trim()
+        if (deviceId.isBlank() || deviceId.length > MAX_DEVICE_ID_LENGTH) {
+            return PermanentUploadException("device_id长度必须为1-64")
+        }
+        if (employeeId.isEmpty() || employeeId.length > MAX_EMPLOYEE_ID_LENGTH) {
+            return PermanentUploadException("employees[].employee_id长度必须为1-64")
+        }
+        if (employeeName.isEmpty() || employeeName.length > MAX_EMPLOYEE_NAME_LENGTH) {
+            return PermanentUploadException("employees[].name长度必须为1-128")
+        }
+        if (!isUuidV4(record.recordUuid)) {
+            return PermanentUploadException("employees[].record_uuid必须是标准UUID v4")
+        }
+        if (record.id < 1 || record.userId < 1 || record.checkTime < 1) {
+            return PermanentUploadException("record_id、user_id和timestamp必须大于等于1")
+        }
+        if (!record.temperature.isFinite() || record.temperature !in MIN_TEMPERATURE..MAX_TEMPERATURE) {
+            return PermanentUploadException("temperature必须在30.0-45.0之间")
+        }
+        if (record.isTempNormal != (record.temperature < NORMAL_TEMPERATURE_LIMIT)) {
+            return PermanentUploadException("is_temp_normal与temperature不一致")
+        }
+        if (record.remark.length > MAX_REMARK_LENGTH) {
+            return PermanentUploadException("remark不能超过500个字符")
+        }
+        if (record.handAbnormalTypes.distinct().size > 5) {
+            return PermanentUploadException("hand_abnormal_types最多包含5个不重复值")
+        }
+        if (record.symptomFlags.distinct().size > 10) {
+            return PermanentUploadException("symptom_flags最多包含10个不重复值")
+        }
+
+        val expectedPassed = record.isTempNormal &&
+            record.handStatus == HandStatus.NORMAL &&
+            record.healthCertStatus.name in PASSING_HEALTH_CERT_STATUSES &&
+            record.symptomFlags.isEmpty()
+        if (record.isPassed != expectedPassed) {
+            return PermanentUploadException("is_passed与体温、手检、健康证或症状判定不一致")
+        }
+        return null
+    }
+
+    private fun isUuidV4(value: String): Boolean {
+        val canonical = runCatching { UUID.fromString(value).toString() }.getOrNull() ?: return false
+        return canonical.equals(value, ignoreCase = true) && UUID.fromString(value).version() == 4
+    }
+
+    private fun isRetryableBusinessCode(code: Int): Boolean =
+        code == 408 || code == 429 || code in 500..599 ||
+            code == 40800 || code == 42900 || code in 50000..59999
 
     private fun getImageBase64(imagePath: String?): String? {
         if (imagePath.isNullOrBlank()) return null
@@ -282,6 +362,10 @@ class CloudRecordService @Inject constructor(
 /** 上传失败分类决定队列继续退避重试，还是记录失败并停止自动重试。 */
 sealed class UploadException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-class RetryableUploadException(message: String, cause: Throwable? = null) : UploadException(message, cause)
+class RetryableUploadException(
+    message: String,
+    cause: Throwable? = null,
+    val retryAfterMillis: Long? = null,
+) : UploadException(message, cause)
 
 class PermanentUploadException(message: String, cause: Throwable? = null) : UploadException(message, cause)

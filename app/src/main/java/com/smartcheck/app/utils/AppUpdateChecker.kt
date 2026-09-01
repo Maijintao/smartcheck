@@ -26,6 +26,20 @@ data class UpdateInfo(
     val isLatest: Boolean = false
 )
 
+internal fun compareVersionNames(first: String, second: String): Int? {
+    val firstParts = Regex("\\d+").findAll(first).map { it.value.toLong() }.toList()
+    val secondParts = Regex("\\d+").findAll(second).map { it.value.toLong() }.toList()
+    if (firstParts.isEmpty() || secondParts.isEmpty()) return null
+
+    val partCount = maxOf(firstParts.size, secondParts.size)
+    for (index in 0 until partCount) {
+        val firstPart = firstParts.getOrElse(index) { 0L }
+        val secondPart = secondParts.getOrElse(index) { 0L }
+        if (firstPart != secondPart) return firstPart.compareTo(secondPart)
+    }
+    return 0
+}
+
 object AppUpdateChecker {
 
     private const val TAG = "AppUpdateChecker"
@@ -65,7 +79,19 @@ object AppUpdateChecker {
                 ?: return@withContext Result.success(null)
 
             val remoteVersionCode = data.optInt("versionCode", 0)
+            val remoteVersionName = data.optString("versionName", "")
             if (remoteVersionCode <= BuildConfig.VERSION_CODE) {
+                val nameComparison = compareVersionNames(remoteVersionName, BuildConfig.VERSION_NAME)
+                val hasConflictingName = remoteVersionName.isNotBlank() && (
+                    remoteVersionCode == BuildConfig.VERSION_CODE && remoteVersionName != BuildConfig.VERSION_NAME ||
+                        remoteVersionCode < BuildConfig.VERSION_CODE && nameComparison != null && nameComparison > 0
+                    )
+                if (hasConflictingName) {
+                    val message = "服务器版本配置异常：远端$remoteVersionName($remoteVersionCode)，" +
+                        "本机${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+                    Timber.w("$TAG $message")
+                    return@withContext Result.failure(Exception(message))
+                }
                 Timber.i("$TAG 已是最新版本 (本地=${BuildConfig.VERSION_CODE}, 远端=$remoteVersionCode)")
                 return@withContext Result.success(null)
             }
@@ -78,7 +104,7 @@ object AppUpdateChecker {
 
             val info = UpdateInfo(
                 versionCode  = remoteVersionCode,
-                versionName  = data.optString("versionName", ""),
+                versionName  = remoteVersionName,
                 apkUrl       = apkUrl,
                 releaseNotes = data.optString("releaseNotes", ""),
                 createdAt    = data.optString("createdAt", ""),

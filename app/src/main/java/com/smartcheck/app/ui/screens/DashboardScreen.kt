@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,9 +42,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,7 +85,9 @@ fun DashboardScreen(
     val adminAvatar by settingsViewModel.adminAvatar.collectAsState()
     val adminName by settingsViewModel.adminName.collectAsState()
     val todaySummary by dashboardViewModel.todaySummary.collectAsState()
+    val recoveryEmployees by dashboardViewModel.recoveryEmployees.collectAsState()
     val context = LocalContext.current
+    var dismissedRecoveryIds by remember { mutableStateOf(emptySet<String>()) }
 
     val primaryBlue = Color(0xFF2563EB)
     val primaryLight = Color(0xFFEFF6FF)
@@ -132,6 +138,49 @@ fun DashboardScreen(
                 onNavigateExport = onNavigateExport
             )
         }
+    }
+
+    val currentRecoveryIds = recoveryEmployees.map { it.employeeId }.toSet()
+    LaunchedEffect(currentRecoveryIds) {
+        if (currentRecoveryIds.isEmpty()) {
+            dismissedRecoveryIds = emptySet()
+        }
+    }
+    if (currentRecoveryIds.isNotEmpty() && currentRecoveryIds != dismissedRecoveryIds) {
+        val previewNames = recoveryEmployees
+            .take(5)
+            .joinToString("、") { it.name.ifBlank { it.employeeId } }
+        val remainingCount = recoveryEmployees.size - 5
+        val employeeText = if (remainingCount > 0) {
+            "$previewNames 等 ${recoveryEmployees.size} 人"
+        } else {
+            previewNames
+        }
+
+        AlertDialog(
+            onDismissRequest = { dismissedRecoveryIds = currentRecoveryIds },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.WarningAmber,
+                    contentDescription = null,
+                    tint = Color(0xFFD97706),
+                )
+            },
+            title = { Text("员工同步异常") },
+            text = {
+                Text("平台名单中缺少本机员工：$employeeText。本机数据已保留，是否重新上传到平台？")
+            },
+            confirmButton = {
+                TextButton(onClick = dashboardViewModel::restoreRecoveryEmployees) {
+                    Text("恢复并上传")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissedRecoveryIds = currentRecoveryIds }) {
+                    Text("稍后处理")
+                }
+            },
+        )
     }
 }
 

@@ -67,6 +67,16 @@ class EmployeeSyncEngine @Inject constructor(
             _syncError.value = null
             syncStateDao.updateStatus("SYNCING")
 
+            // 先为历史本地员工补建 outbox。此步骤失败时禁止继续拉取，避免误删本地数据。
+            val localUploadResult = syncRepo.enqueueLocalOnlyEmployeesForUpload()
+            if (localUploadResult.isFailure) {
+                throw localUploadResult.exceptionOrNull() ?: Exception("本地员工上传任务创建失败")
+            }
+            val queuedLocalCount = localUploadResult.getOrDefault(0)
+            if (queuedLocalCount > 0) {
+                Timber.i("$TAG: 已将 $queuedLocalCount 名历史本地员工加入上传队列")
+            }
+
             // Step 1: 上传 outbox（失败不阻止后续拉取）
             try {
                 uploadOutbox()
@@ -134,12 +144,12 @@ class EmployeeSyncEngine @Inject constructor(
             syncRepo.applyRemoteUpsert(entity)
         }
 
-        // 删除快照中不存在的本地员工（仅删除 SYNCED 状态的，保留 PENDING_UPLOAD 和 CONFLICT）
+        // 快照缺失不能等同于平台明确删除。保留本地员工，交由主页提示用户确认恢复。
         val allLocalUsers = userDao.getAllUsersSync()
         for (localUser in allLocalUsers) {
             if (localUser.employeeId !in snapshotIds && localUser.syncStatus == "SYNCED") {
-                userDao.deleteFromRemote(localUser.employeeId)
-                Timber.d("$TAG: 快照同步删除本地多余员工: ${localUser.employeeId}")
+                syncRepo.markRecoveryRequired(localUser.employeeId)
+                Timber.w("$TAG: 平台快照缺少本地员工，已保留并等待恢复确认: ${localUser.employeeId}")
             }
         }
 

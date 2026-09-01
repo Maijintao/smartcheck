@@ -33,7 +33,7 @@ class RecordUploadRetryScheduler @Inject constructor(
 ) {
     companion object {
         private const val TAG = "RecordUploadRetry"
-        private const val RETRY_INTERVAL_MS = 60_000L  // 每 60 秒兜底扫描一次
+        private const val RETRY_INTERVAL_MS = 5_000L
     }
 
     private val isRunning = AtomicBoolean(false)

@@ -2,6 +2,8 @@ package com.smartcheck.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartcheck.app.data.sync.EmployeeSyncEngine
+import com.smartcheck.app.data.sync.EmployeeSyncRepository
 import com.smartcheck.app.domain.repository.IRecordRepository
 import com.smartcheck.app.domain.repository.IUserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,7 +12,14 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+data class EmployeeRecoveryItem(
+    val employeeId: String,
+    val name: String,
+)
 
 data class TodayCheckSummary(
     val totalCount: Int = 0,
@@ -22,6 +31,8 @@ data class TodayCheckSummary(
 class DashboardViewModel @Inject constructor(
     userRepository: IUserRepository,
     recordRepository: IRecordRepository,
+    private val employeeSyncRepository: EmployeeSyncRepository,
+    private val employeeSyncEngine: EmployeeSyncEngine,
 ) : ViewModel() {
 
     private val todayStart = Calendar.getInstance().apply {
@@ -52,4 +63,24 @@ class DashboardViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = TodayCheckSummary(),
     )
+
+    val recoveryEmployees: StateFlow<List<EmployeeRecoveryItem>> = employeeSyncRepository
+        .observeRecoveryRequiredEmployees()
+        .map { employees ->
+            employees.map { EmployeeRecoveryItem(employeeId = it.employeeId, name = it.name) }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
+
+    fun restoreRecoveryEmployees() {
+        viewModelScope.launch {
+            val result = employeeSyncRepository.restoreRecoveryRequiredEmployees()
+            if (result.isSuccess) {
+                employeeSyncEngine.triggerSync()
+            }
+        }
+    }
 }

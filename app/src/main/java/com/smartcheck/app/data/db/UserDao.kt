@@ -62,6 +62,22 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE syncStatus = :status")
     suspend fun getUsersBySyncStatus(status: String): List<UserEntity>
 
+    /** 观察因平台数据异常而被本地保留的员工 */
+    @Query("SELECT * FROM users WHERE syncStatus = 'RECOVERY_REQUIRED' ORDER BY employeeId")
+    fun observeRecoveryRequiredUsers(): Flow<List<UserEntity>>
+
+    /**
+     * 查找尚未取得平台版本号的本地员工。
+     * PENDING_UPLOAD 也纳入检查，用于修复员工状态已更新但 outbox 意外缺失的情况。
+     */
+    @Query("""
+        SELECT * FROM users
+        WHERE platformVersion = 0
+          AND syncStatus IN ('SYNCED', 'PENDING_UPLOAD')
+        ORDER BY id
+    """)
+    suspend fun getLocalOnlyUsersForUpload(): List<UserEntity>
+
     /** 图片下载后更新：file_id、sha256、本地路径、特征向量 */
     @Query("""
         UPDATE users
