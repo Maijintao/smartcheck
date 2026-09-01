@@ -8,22 +8,26 @@ SmartCheck 设备激活 + 版本管理服务器
   GET  /uploads/<filename>        下载已上传的 APK（公开）
   GET  /api/app/version/latest    App 检查更新（公开）
   GET  /api/app/version/history   App 查看版本历史（公开）
-  POST /api/device/activate       设备激活（公开）
+    POST /api/device/activate       设备 MAC 授权校验（公开）
   POST /admin/apk/upload          上传 APK 并发布版本（需登录）
-  POST /admin/codes/add           添加激活码（需登录）
-  POST /admin/codes/delete        删除激活码（需登录）
+    POST /admin/codes/add           添加认证数据（MAC/激活码，需登录）
+    POST /admin/codes/delete        删除认证数据（MAC/激活码，需登录）
   POST /admin/change_password     修改管理密码（需登录）
 """
 
 import hashlib
 import json
+import mmap
 import mimetypes
 import os
+import re
 import secrets
 import socket
 import sqlite3
+import struct
 import threading
 import time
+import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 try:
@@ -37,6 +41,148 @@ except ImportError:
         allow_reuse_address = True
 from urllib.parse import parse_qs, urlparse
 
+
+class ApkVersionError(ValueError):
+    pass
+
+
+def _decode_length8(data: bytes, offset: int):
+    first = data[offset]
+    if first & 0x80:
+        return ((first & 0x7F) << 8) | data[offset + 1], offset + 2
+    return first, offset + 1
+
+
+def _decode_length16(data: bytes, offset: int):
+    first = struct.unpack_from('<H', data, offset)[0]
+    if first & 0x8000:
+        second = struct.unpack_from('<H', data, offset + 2)[0]
+        return ((first & 0x7FFF) << 16) | second, offset + 4
+    return first, offset + 2
+
+
+def _parse_axml_string_pool(data: bytes, offset: int):
+    if len(data) < offset + 28:
+        raise ApkVersionError("APK Manifest string pool is incomplete")
+
+    chunk_type, header_size, chunk_size = struct.unpack_from('<HHI', data, offset)
+    if chunk_type != 0x0001:
+        raise ApkVersionError("APK Manifest string pool is missing")
+
+    string_count, style_count, flags, strings_start, _styles_start = struct.unpack_from('<IIIII', data, offset + 8)
+    offsets_start = offset + header_size
+    strings_base = offset + strings_start
+    is_utf8 = bool(flags & 0x00000100)
+    strings = []
+
+    for index in range(string_count):
+        string_offset = struct.unpack_from('<I', data, offsets_start + index * 4)[0]
+        cursor = strings_base + string_offset
+
+        if is_utf8:
+            _utf16_len, cursor = _decode_length8(data, cursor)
+            byte_len, cursor = _decode_length8(data, cursor)
+            raw = data[cursor:cursor + byte_len]
+            strings.append(raw.decode('utf-8', errors='replace'))
+        else:
+            char_len, cursor = _decode_length16(data, cursor)
+            raw = data[cursor:cursor + char_len * 2]
+            strings.append(raw.decode('utf-16le', errors='replace'))
+
+    return strings, offset + chunk_size
+
+
+def _axml_string(strings, index):
+    if index == 0xFFFFFFFF or index < 0 or index >= len(strings):
+        return None
+    return strings[index]
+
+
+def _axml_typed_value(strings, raw_value_index, data_type, data_value):
+    raw_value = _axml_string(strings, raw_value_index)
+    if raw_value is not None:
+        return raw_value
+    if data_type == 0x03:
+        return _axml_string(strings, data_value)
+    if data_type in (0x10, 0x11):
+        return data_value
+    if data_type == 0x12:
+        return bool(data_value)
+    return None
+
+
+def extract_apk_manifest_version(apk_path: str):
+    try:
+        with zipfile.ZipFile(apk_path) as apk:
+            manifest = apk.read('AndroidManifest.xml')
+    except KeyError as exc:
+        raise ApkVersionError("APK 中缺少 AndroidManifest.xml") from exc
+    except zipfile.BadZipFile as exc:
+        raise ApkVersionError("上传的文件不是有效 APK") from exc
+    except OSError as exc:
+        raise ApkVersionError(f"读取 APK 失败: {exc}") from exc
+
+    if len(manifest) < 8:
+        raise ApkVersionError("APK Manifest 无效")
+
+    chunk_type, _header_size, chunk_size = struct.unpack_from('<HHI', manifest, 0)
+    if chunk_type != 0x0003 or chunk_size > len(manifest):
+        raise ApkVersionError("APK Manifest 不是 Android binary XML")
+
+    offset = 8
+    strings = None
+    version_code = None
+    version_name = None
+
+    while offset + 8 <= len(manifest):
+        node_type, node_header_size, node_size = struct.unpack_from('<HHI', manifest, offset)
+        if node_size <= 0:
+            raise ApkVersionError("APK Manifest chunk 无效")
+
+        if node_type == 0x0001:
+            strings, _ = _parse_axml_string_pool(manifest, offset)
+        elif node_type == 0x0102 and strings is not None:
+            ext_offset = offset + 16
+            if len(manifest) < ext_offset + 20:
+                raise ApkVersionError("APK Manifest start tag 无效")
+
+            element_name_index = struct.unpack_from('<I', manifest, ext_offset + 4)[0]
+            element_name = _axml_string(strings, element_name_index)
+            if element_name == 'manifest':
+                attribute_start, attribute_size, attribute_count = struct.unpack_from('<HHH', manifest, ext_offset + 8)
+                attrs_offset = ext_offset + attribute_start
+
+                for i in range(attribute_count):
+                    attr_offset = attrs_offset + i * attribute_size
+                    if len(manifest) < attr_offset + 20:
+                        raise ApkVersionError("APK Manifest attribute 无效")
+
+                    attr_name_index = struct.unpack_from('<I', manifest, attr_offset + 4)[0]
+                    raw_value_index = struct.unpack_from('<I', manifest, attr_offset + 8)[0]
+                    data_type = manifest[attr_offset + 15]
+                    data_value = struct.unpack_from('<I', manifest, attr_offset + 16)[0]
+
+                    attr_name = _axml_string(strings, attr_name_index)
+                    attr_value = _axml_typed_value(strings, raw_value_index, data_type, data_value)
+                    if attr_name == 'versionCode':
+                        try:
+                            version_code = int(attr_value)
+                        except (TypeError, ValueError) as exc:
+                            raise ApkVersionError("APK versionCode 无法解析") from exc
+                    elif attr_name == 'versionName':
+                        version_name = str(attr_value or '').strip()
+
+                break
+
+        offset += node_size
+
+    if version_code is None:
+        raise ApkVersionError("APK 中未找到 versionCode")
+    if not version_name:
+        raise ApkVersionError("APK 中未找到 versionName")
+
+    return version_code, version_name
+
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DB_PATH     = os.path.join(BASE_DIR, "smartcheck.db")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
@@ -44,36 +190,32 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 DEFAULT_PASSWORD = "admin888"   # 仅首次启动时使用；登录后请在管理页修改
 _SESSION_EXPIRE  = 12 * 3600   # 会话有效期：12 小时
 
-_SOCKET_TIMEOUT_SECONDS = 60
+_SOCKET_TIMEOUT_SECONDS = 300
 _MAX_BODY_BYTES_DEFAULT = 1 * 1024 * 1024
-_MAX_BODY_BYTES_UPLOAD  = 200 * 1024 * 1024
+_MAX_BODY_BYTES_UPLOAD  = 1024 * 1024 * 1024  # 1GB，支持大型 APK（如留样秤 300MB+）
 
-# 原有激活码（仅首次运行时写入数据库，后续以数据库为准）
-INITIAL_CODES = [
-    "K7X9M2P", "R4Y8N5Q", "T3W7L6J", "V1H4K8F", "X6G3D9B",
-    "Z5C2E7S", "A8B4F6H", "C9D1G4J", "E2L7M5N", "F3P8Q6R",
-    "G1T9W2X", "H4Y7V6U", "J2K5L8M", "L6N3P9Q", "M8R1T4W",
-    "N5X2Y7Z", "P9A1B3C", "Q4D6E8F", "R7G2H5J", "S1K3L6M",
-    "T8N9P2Q", "U5R4S7V", "V6W1X3Y", "W9Z2A4B", "X3C5D6E",
-    "Y7F8G1H", "Z2J4K5L", "A6M8N9P", "B1Q3R5S", "C4T6U7V",
-    "D8W1X2Y", "E5Z3A6B", "F9C7D1E", "G2F4H8J", "H5K1L3M",
-    "J7N6P8Q", "K4R9S2T", "L8U5V1W", "M3X7Y6Z", "N9A2B4C",
-    "P1D6E3F", "Q7G8H2J", "R5K4L9M", "S2N3P1Q", "T6R8U5V",
-    "W4X9Y1Z", "A7B2C5D", "E3F6G8H", "J1K4L7M", "N8P2Q3R",
-    "S5T6U9V", "H2J5K6L", "M7N3P8Q", "R9S4T1U", "V5W6X2Y",
-    "A3B8C9D", "E4F1G7H", "J9K2L5M", "N6P7Q3R", "S8T9U1V",
-    "W2X4Y6Z", "A5B7C1D", "E9F3G8H", "J4K6L2M", "N1P5Q9R",
-    "S7T3U8V", "W6X9Y2Z", "A8B4C7D", "E2F6G1H", "J5K9L3M",
-    # 测试码（30个，简单易输入）
-    "TEST001", "TEST002", "TEST003", "TEST004", "TEST005",
-    "TEST006", "TEST007", "TEST008", "TEST009", "TEST010",
-    "TEST011", "TEST012", "TEST013", "TEST014", "TEST015",
-    "TEST016", "TEST017", "TEST018", "TEST019", "TEST020",
-    "TEST021", "TEST022", "TEST023", "TEST024", "TEST025",
-    "TEST026", "TEST027", "TEST028", "TEST029", "TEST030",
-    # ⚠️  临时客户码 - 激活完后在管理页面删除
-    "CUSTOMER_TEMP",
-]
+MAC_REGEX = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
+ACTIVATION_CODE_REGEX = re.compile(r"^[A-Z0-9][A-Z0-9_-]{3,127}$")
+
+# 预置 MAC 白名单（仅首次运行时写入数据库，后续以数据库为准）
+INITIAL_WHITELIST_MACS = []
+
+
+def normalize_mac(mac: str) -> str:
+    cleaned = (mac or "").strip().upper().replace("-", ":")
+    return cleaned
+
+
+def is_valid_mac(mac: str) -> bool:
+    return bool(MAC_REGEX.fullmatch(normalize_mac(mac)))
+
+
+def normalize_activation_code(code: str) -> str:
+    return (code or "").strip().upper()
+
+
+def is_valid_activation_code(code: str) -> bool:
+    return bool(ACTIVATION_CODE_REGEX.fullmatch(normalize_activation_code(code)))
 
 db_lock = threading.Lock()
 
@@ -144,19 +286,6 @@ def set_admin_password(new_password: str):
             conn.commit()
 
 
-def get_master_activation_code() -> str:
-    v = (os.environ.get('SMARTCHECK_MASTER_CODE') or '').strip()
-    if v:
-        return v
-
-    with db_lock:
-        with get_conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key='master_activation_code'"
-            ).fetchone()
-    return (row["value"] if row else '').strip()
-
-
 # ────────────────────────────────────────────
 # multipart/form-data 解析（纯 stdlib）
 # ────────────────────────────────────────────
@@ -225,6 +354,16 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS device_whitelist (
+                mac           TEXT PRIMARY KEY,
+                note          TEXT DEFAULT '',
+                status        INTEGER DEFAULT 1,
+                created_at    TEXT NOT NULL,
+                first_seen_at TEXT DEFAULT '',
+                last_seen_at  TEXT DEFAULT ''
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS app_versions (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 version_code  INTEGER NOT NULL,
@@ -232,9 +371,15 @@ def init_db():
                 apk_url       TEXT    NOT NULL,
                 release_notes TEXT    DEFAULT '',
                 created_at    TEXT    NOT NULL,
-                is_latest     INTEGER DEFAULT 0
+                is_latest     INTEGER DEFAULT 0,
+                device_type   TEXT    DEFAULT 'smartcheck'
             )
         """)
+        # 迁移：为旧数据库添加 device_type 列
+        try:
+            conn.execute("ALTER TABLE app_versions ADD COLUMN device_type TEXT DEFAULT 'smartcheck'")
+        except Exception:
+            pass  # 列已存在
         conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
@@ -242,12 +387,20 @@ def init_db():
             )
         """)
 
-        # 初始化激活码
-        existing = conn.execute("SELECT COUNT(*) FROM activation_codes").fetchone()[0]
+        # 初始化 MAC 白名单
+        existing = conn.execute("SELECT COUNT(*) FROM device_whitelist").fetchone()[0]
         if existing == 0:
-            for code in INITIAL_CODES:
-                conn.execute("INSERT OR IGNORE INTO activation_codes(code) VALUES(?)", (code,))
-            print(f"[DB] 初始化 {len(INITIAL_CODES)} 个激活码")
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for mac in INITIAL_WHITELIST_MACS:
+                normalized = normalize_mac(mac)
+                if not is_valid_mac(normalized):
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO device_whitelist(mac, created_at) VALUES(?, ?)",
+                    (normalized, now),
+                )
+            if INITIAL_WHITELIST_MACS:
+                print(f"[DB] 初始化 {len(INITIAL_WHITELIST_MACS)} 个 MAC 白名单")
 
         # 初始化管理密码（仅首次）
         pw_exists = conn.execute(
@@ -263,18 +416,15 @@ def init_db():
             print(f"[Auth] 登录后请立即在管理页面修改密码！")
             print(f"{'!'*50}\n")
 
-        conn.commit()
+        # 迁移：app_versions 增加 device_type 列
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(app_versions)").fetchall()]
+        if 'device_type' not in columns:
+            conn.execute(
+                "ALTER TABLE app_versions ADD COLUMN device_type TEXT NOT NULL DEFAULT 'smartcheck'"
+            )
+            print("[DB] app_versions 表已添加 device_type 列")
 
-    # ⚠️ 临时客户码提醒：检查数据库，而非代码列表
-    with get_conn() as conn:
-        tmp = conn.execute(
-            "SELECT code FROM activation_codes WHERE code='CUSTOMER_TEMP' AND activated_at=''"
-        ).fetchone()
-    if tmp:
-        print("\n" + "⚠️  " * 10)
-        print("⚠️  提醒：临时客户激活码 'CUSTOMER_TEMP' 尚未被使用")
-        print("⚠️  客户激活完后，请在管理页面删除该码！")
-        print("⚠️  " * 10 + "\n")
+        conn.commit()
 
 
 # ────────────────────────────────────────────
@@ -469,10 +619,16 @@ class Handler(BaseHTTPRequestHandler):
     # ── API: 最新版本 ─────────────────────────
 
     def _api_version_latest(self):
+        query = parse_qs(urlparse(self.path).query)
+        device_type = query.get('device_type', ['smartcheck'])[0].strip()
+        if device_type not in ('smartcheck', 'sample_scale'):
+            device_type = 'smartcheck'
+
         with db_lock:
             with get_conn() as conn:
                 row = conn.execute(
-                    "SELECT * FROM app_versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1"
+                    "SELECT * FROM app_versions WHERE is_latest=1 AND device_type=? ORDER BY id DESC LIMIT 1",
+                    (device_type,)
                 ).fetchone()
 
         if row is None:
@@ -486,16 +642,23 @@ class Handler(BaseHTTPRequestHandler):
                     "apkUrl":       row["apk_url"],
                     "releaseNotes": row["release_notes"],
                     "createdAt":    row["created_at"],
+                    "deviceType":   row["device_type"],
                 }
             })
 
     # ── API: 版本历史 ─────────────────────────
 
     def _api_version_history(self):
+        query = parse_qs(urlparse(self.path).query)
+        device_type = query.get('device_type', ['smartcheck'])[0].strip()
+        if device_type not in ('smartcheck', 'sample_scale'):
+            device_type = 'smartcheck'
+
         with db_lock:
             with get_conn() as conn:
                 rows = conn.execute(
-                    "SELECT * FROM app_versions ORDER BY id DESC LIMIT 10"
+                    "SELECT * FROM app_versions WHERE device_type=? ORDER BY id DESC LIMIT 10",
+                    (device_type,)
                 ).fetchall()
         history = [
             {
@@ -504,6 +667,7 @@ class Handler(BaseHTTPRequestHandler):
                 "releaseNotes": r["release_notes"],
                 "createdAt":    r["created_at"],
                 "isLatest":     bool(r["is_latest"]),
+                "deviceType":   r["device_type"],
             }
             for r in rows
         ]
@@ -517,47 +681,125 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             data = json.loads(body)
-            code = data.get('activationCode', '').strip()
+            raw_mac = str(data.get('deviceMac') or data.get('mac') or '').strip()
+            raw_code = str(data.get('activationCode', '')).strip()
+            if not raw_mac and raw_code and is_valid_mac(raw_code):
+                # 兼容旧客户端把 MAC 放在 activationCode 字段。
+                raw_mac = raw_code
         except Exception:
             self.send_error(400, "Invalid JSON")
             return
 
-        print(f"\n{'='*50}")
-        print(f"设备请求激活  激活码: {code}")
-        print('='*50)
-
-        master_code = get_master_activation_code()
-        if master_code and code == master_code:
-            print("✓ 万能激活码激活成功!\n")
-            self._send_json({"code": 0, "message": "激活成功", "data": {"activated": True, "master": True}})
+        if raw_mac:
+            self._activate_by_mac(raw_mac)
             return
+
+        if raw_code:
+            self._activate_by_legacy_code(raw_code, data)
+            return
+
+        self._send_json({
+            "code": 1004,
+            "message": "缺少授权参数（deviceMac/mac 或 activationCode）",
+            "data": {"activated": False},
+        })
+
+    def _activate_by_mac(self, raw_mac: str):
+        mac = normalize_mac(raw_mac)
+        if not is_valid_mac(mac):
+            self._send_json({"code": 1003, "message": "MAC 地址格式无效", "data": {"activated": False}})
+            return
+
+        print(f"\n{'='*50}")
+        print(f"设备请求授权  MAC: {mac}")
+        print('='*50)
 
         with db_lock:
             with get_conn() as conn:
                 row = conn.execute(
-                    "SELECT * FROM activation_codes WHERE code=?", (code,)
+                    "SELECT * FROM device_whitelist WHERE mac=? AND status=1", (mac,)
                 ).fetchone()
 
                 if row is None:
-                    print("✗ 激活码无效\n")
-                    self._send_json({"code": 1001, "message": "激活码无效", "data": {"activated": False}})
-                    return
-
-                if row["activated_at"]:
-                    print(f"✗ 激活码已被使用（{row['activated_at']}）\n")
-                    self._send_json({"code": 1002, "message": "激活码已被使用", "data": {"activated": False}})
+                    print("✗ MAC 不在白名单\n")
+                    self._send_json({"code": 1001, "message": "设备未授权（MAC 不在认证清单）", "data": {"activated": False}})
                     return
 
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                first_seen = row["first_seen_at"] or now
                 conn.execute(
-                    "UPDATE activation_codes SET activated_at=? WHERE code=?", (now, code)
+                    "UPDATE device_whitelist SET first_seen_at=?, last_seen_at=? WHERE mac=?",
+                    (first_seen, now, mac),
                 )
                 conn.commit()
 
-        print("✓ 激活成功!\n")
-        self._send_json({"code": 0, "message": "激活成功", "data": {"activated": True}})
+        print("✓ MAC 授权验证成功!\n")
+        self._send_json({
+            "code": 0,
+            "message": "设备授权通过",
+            "data": {"activated": True, "deviceMac": mac, "mode": "mac"},
+        })
 
-    # ── 管理：上传 APK 并发布版本 ─────────────
+    def _activate_by_legacy_code(self, raw_code: str, payload: dict):
+        code = normalize_activation_code(raw_code)
+        if not is_valid_activation_code(code):
+            self._send_json({"code": 1005, "message": "激活码格式无效", "data": {"activated": False}})
+            return
+
+        device_sn = str(
+            payload.get('deviceSn') or payload.get('deviceSN') or payload.get('deviceId') or ''
+        ).strip()
+        if not device_sn:
+            # 兼容旧客户端未上传 deviceSn 的情况，用请求源地址兜底绑定。
+            device_sn = str(getattr(self, 'client_address', ('',))[0] or '').strip()
+
+        print(f"\n{'='*50}")
+        print(f"设备请求授权  激活码: {code}  deviceSn: {device_sn or '-'}")
+        print('='*50)
+
+        with db_lock:
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT code, device_sn, activated_at FROM activation_codes WHERE code=?",
+                    (code,),
+                ).fetchone()
+                if row is None:
+                    print("✗ 激活码不存在\n")
+                    self._send_json({"code": 1006, "message": "激活码无效", "data": {"activated": False}})
+                    return
+
+                bound_sn = (row['device_sn'] or '').strip()
+                if bound_sn and device_sn and bound_sn != device_sn:
+                    print(f"✗ 激活码已绑定其他设备: {bound_sn}\n")
+                    self._send_json({
+                        "code": 1007,
+                        "message": "激活码已绑定其他设备",
+                        "data": {"activated": False},
+                    })
+                    return
+
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                target_sn = bound_sn or device_sn or ''
+                if not bound_sn:
+                    conn.execute(
+                        "UPDATE activation_codes SET device_sn=?, activated_at=? WHERE code=?",
+                        (target_sn, now, code),
+                    )
+                    conn.commit()
+
+        print("✓ 激活码授权验证成功!\n")
+        self._send_json({
+            "code": 0,
+            "message": "设备授权通过",
+            "data": {
+                "activated": True,
+                "activationCode": code,
+                "deviceSn": device_sn,
+                "mode": "activationCode",
+            },
+        })
+
+    # ── 管理：上传 APK 并发布版本（流式写入磁盘，低内存） ─────────────
 
     def _admin_apk_upload(self):
         content_type = self.headers.get('Content-Type', '')
@@ -565,13 +807,62 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"code": 1, "message": "需要 multipart/form-data"}, status=400)
             return
 
-        body = self._read_body_bytes(max_len=_MAX_BODY_BYTES_UPLOAD)
-        if body is None:
-            return
-        fields = parse_multipart(content_type, body)
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except (ValueError, TypeError):
+            content_length = 0
 
-        apk_field = fields.get('apk_file')
-        if not isinstance(apk_field, dict) or not apk_field.get('data'):
+        if content_length <= 0:
+            self._send_json({"code": 1, "message": "空请求"}, status=400)
+            return
+        if content_length > _MAX_BODY_BYTES_UPLOAD:
+            self._send_json({"code": 1, "message": "文件过大（超过 1GB 限制）"}, status=413)
+            return
+
+        # 提取 boundary
+        boundary = None
+        for part in content_type.split(';'):
+            part = part.strip()
+            if part.startswith('boundary='):
+                boundary = part[len('boundary='):].strip('"')
+                break
+        if not boundary:
+            self._send_json({"code": 1, "message": "缺少 boundary"}, status=400)
+            return
+
+        # 流式写入临时文件（不占内存）
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.upload', dir=UPLOADS_DIR)
+        try:
+            remaining = content_length
+            with os.fdopen(tmp_fd, 'wb') as tmp_file:
+                while remaining > 0:
+                    chunk_size = min(65536, remaining)
+                    chunk = self.rfile.read(chunk_size)
+                    if not chunk:
+                        break
+                    tmp_file.write(chunk)
+                    remaining -= len(chunk)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            self._send_json({"code": 1, "message": f"接收数据失败: {e}"}, status=500)
+            return
+
+        # 从临时文件解析 multipart（分块读取，只提取需要的内容）
+        try:
+            fields = self._parse_multipart_from_file(tmp_path, boundary)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            self._send_json({"code": 1, "message": f"解析上传数据失败: {e}"}, status=400)
+            return
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        apk_filepath = fields.get('_apk_filepath')
+        if not apk_filepath:
             self._send_json({"code": 1, "message": "未收到 APK 文件"}, status=400)
             return
 
@@ -579,40 +870,190 @@ class Handler(BaseHTTPRequestHandler):
             version_code  = int(fields.get('version_code', '0'))
             version_name  = fields.get('version_name', '').strip()
             release_notes = fields.get('release_notes', '').strip()
+            device_type   = fields.get('device_type', 'smartcheck').strip()
         except Exception:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
             self._send_json({"code": 1, "message": "版本号格式错误"}, status=400)
             return
 
+        if device_type not in ('smartcheck', 'sample_scale'):
+            device_type = 'smartcheck'
+
         if not version_code or not version_name:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
             self._send_json({"code": 1, "message": "versionCode 和版本名称为必填"}, status=400)
             return
 
-        original_name = apk_field.get('filename', 'update.apk')
-        # 用版本号命名，确保每次上传都是独立的文件
-        safe_filename = f"smartcheck-v{version_name}.apk"
-        filepath = os.path.join(UPLOADS_DIR, safe_filename)
+        try:
+            apk_version_code, apk_version_name = extract_apk_manifest_version(apk_filepath)
+        except ApkVersionError as e:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
+            self._send_json({"code": 1, "message": f"APK 版本读取失败：{e}"}, status=400)
+            return
 
-        with open(filepath, 'wb') as f:
-            f.write(apk_field['data'])
+        if apk_version_code != version_code:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
+            message = f"发布失败：版本号填写错误，该APK版本号为{apk_version_code}。"
+            print(f"[Admin] 拒绝发布版本 [{device_type}]: {message}")
+            self._send_json({"code": 1, "message": message}, status=400)
+            return
 
+        if apk_version_name != version_name:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
+            message = f"发布失败：版本名称填写错误，该APK版本名称为{apk_version_name}。"
+            print(f"[Admin] 拒绝发布版本 [{device_type}]: {message}")
+            self._send_json({"code": 1, "message": message}, status=400)
+            return
+
+        with db_lock:
+            with get_conn() as conn:
+                latest_row = conn.execute(
+                    "SELECT version_code FROM app_versions WHERE is_latest=1 AND device_type=? ORDER BY id DESC LIMIT 1",
+                    (device_type,),
+                ).fetchone()
+        if latest_row and version_code <= latest_row["version_code"]:
+            if os.path.exists(apk_filepath):
+                os.remove(apk_filepath)
+            message = (
+                f"发布失败：版本号必须大于当前最新版本号。"
+                f"当前最新版本号为{latest_row['version_code']}，本次版本号为{version_code}。"
+            )
+            print(f"[Admin] 拒绝发布版本 [{device_type}]: {message}")
+            self._send_json({"code": 1, "message": message}, status=400)
+            return
+
+        # 重命名为规范文件名
+        safe_filename = f"{device_type}-v{version_name}.apk"
+        final_filepath = os.path.join(UPLOADS_DIR, safe_filename)
+        try:
+            if os.path.exists(final_filepath):
+                os.remove(final_filepath)
+            os.rename(apk_filepath, final_filepath)
+        except OSError:
+            import shutil
+            shutil.move(apk_filepath, final_filepath)
+
+        file_size = os.path.getsize(final_filepath)
         host    = self.headers.get('Host', '127.0.0.1:8080')
         apk_url = f"http://{host}/uploads/{safe_filename}"
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        device_label = "晨检仪" if device_type == "smartcheck" else "留样秤"
         with db_lock:
             with get_conn() as conn:
-                conn.execute("UPDATE app_versions SET is_latest=0")
+                conn.execute(
+                    "UPDATE app_versions SET is_latest=0 WHERE device_type=?",
+                    (device_type,)
+                )
                 conn.execute(
                     """INSERT INTO app_versions
-                       (version_code, version_name, apk_url, release_notes, created_at, is_latest)
-                       VALUES (?, ?, ?, ?, ?, 1)""",
-                    (version_code, version_name, apk_url, release_notes, now)
+                       (version_code, version_name, apk_url, release_notes, created_at, is_latest, device_type)
+                       VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                    (version_code, version_name, apk_url, release_notes, now, device_type)
                 )
                 conn.commit()
 
-        size_mb = len(apk_field['data']) / 1024 / 1024
-        print(f"[Admin] 发布版本: {version_name} (code={version_code}), {size_mb:.1f}MB → {apk_url}")
+        size_mb = file_size / 1024 / 1024
+        print(f"[Admin] 发布版本 [{device_label}]: {version_name} (code={version_code}), {size_mb:.1f}MB -> {apk_url}")
         self._send_json({"code": 0, "message": "发布成功", "apk_url": apk_url})
+
+    def _parse_multipart_from_file(self, filepath: str, boundary: str) -> dict:
+        """从临时文件解析 multipart 数据。文件部分提取到单独文件，文本字段读入内存。"""
+        import tempfile
+
+        delimiter = f'--{boundary}'.encode()
+        fields = {}
+
+        def parse_part_name(header_section: str):
+            field_name = None
+            filename = None
+            for line in header_section.splitlines():
+                if 'Content-Disposition' not in line:
+                    continue
+                for item in line.split(';'):
+                    item = item.strip()
+                    if item.lower().startswith('name='):
+                        field_name = item[5:].strip('"')
+                    elif item.lower().startswith('filename='):
+                        filename = item[9:].strip('"')
+            return field_name, filename
+
+        with open(filepath, 'rb') as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                cursor = mm.find(delimiter)
+                while cursor >= 0:
+                    after_boundary = cursor + len(delimiter)
+                    if mm[after_boundary:after_boundary + 2] == b'--':
+                        break
+                    if mm[after_boundary:after_boundary + 2] != b'\r\n':
+                        cursor = mm.find(delimiter, after_boundary)
+                        continue
+
+                    part_start = after_boundary + 2
+                    header_end = mm.find(b'\r\n\r\n', part_start)
+                    if header_end < 0:
+                        break
+
+                    header_section = mm[part_start:header_end].decode('utf-8', errors='replace')
+                    content_start = header_end + 4
+                    next_boundary_marker = mm.find(b'\r\n' + delimiter, content_start)
+                    if next_boundary_marker < 0:
+                        break
+
+                    content_end = next_boundary_marker
+                    field_name, filename = parse_part_name(header_section)
+                    if field_name:
+                        if filename is not None:
+                            if field_name == 'apk_file':
+                                fd, apk_tmp_path = tempfile.mkstemp(suffix='.apk', dir=UPLOADS_DIR)
+                                fields['_apk_filepath'] = apk_tmp_path
+                                f.seek(content_start)
+                                remaining = content_end - content_start
+                                with os.fdopen(fd, 'wb') as apk_out:
+                                    while remaining > 0:
+                                        chunk = f.read(min(65536, remaining))
+                                        if not chunk:
+                                            break
+                                        apk_out.write(chunk)
+                                        remaining -= len(chunk)
+                        else:
+                            text_size = content_end - content_start
+                            if text_size <= 1024 * 1024:
+                                fields[field_name] = mm[content_start:content_end].decode('utf-8', errors='replace')
+
+                    cursor = next_boundary_marker + 2
+
+        return fields
+
+    def _extract_text_fields(self, data: bytes, delimiter: bytes, fields: dict):
+        """从 multipart 剩余数据中提取文本字段"""
+        parts = data.split(delimiter)
+        for part in parts:
+            if not part or part.strip() in (b'--', b''):
+                continue
+            if part.startswith(b'\r\n'):
+                part = part[2:]
+            if part.endswith(b'\r\n'):
+                part = part[:-2]
+
+            header_end = part.find(b'\r\n\r\n')
+            if header_end < 0:
+                continue
+            header_section = part[:header_end].decode('utf-8', errors='replace')
+            content = part[header_end + 4:]
+            if content.endswith(b'\r\n'):
+                content = content[:-2]
+
+            if 'name="' in header_section and 'filename=' not in header_section:
+                name_start = header_section.index('name="') + 6
+                name_end = header_section.index('"', name_start)
+                field_name = header_section[name_start:name_end]
+                fields[field_name] = content.decode('utf-8', errors='replace')
 
     # ── 管理：修改密码 ────────────────────────
 
@@ -640,49 +1081,90 @@ class Handler(BaseHTTPRequestHandler):
         print("[Auth] 管理密码已修改，所有会话已吊销。")
         self._redirect('/admin/login?msg=changed')
 
-    # ── 管理：添加激活码 ──────────────────────
+    # ── 管理：添加认证数据（MAC / 激活码） ─────
 
     def _admin_add_codes(self):
         body = self._read_body()
         if body is None:
             return
         params = parse_qs(body)
-        raw = params.get('codes', [''])[0]
-        new_codes = [c.strip() for c in raw.replace(',', '\n').splitlines() if c.strip()]
+        raw_macs = params.get('macs', [''])[0]
+        raw_codes = params.get('codes', [''])[0]
 
-        added = 0
+        incoming_macs = [normalize_mac(c) for c in raw_macs.replace(',', '\n').splitlines() if c.strip()]
+        incoming_codes = [normalize_activation_code(c) for c in raw_codes.replace(',', '\n').splitlines() if c.strip()]
+
+        added_macs = 0
+        invalid_macs = 0
+        added_codes = 0
+        invalid_codes = 0
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with db_lock:
             with get_conn() as conn:
-                for c in new_codes:
+                for mac in incoming_macs:
+                    if not is_valid_mac(mac):
+                        invalid_macs += 1
+                        continue
                     try:
-                        conn.execute("INSERT INTO activation_codes(code) VALUES(?)", (c,))
-                        added += 1
+                        conn.execute(
+                            "INSERT INTO device_whitelist(mac, created_at) VALUES(?, ?)",
+                            (mac, now),
+                        )
+                        added_macs += 1
+                    except sqlite3.IntegrityError:
+                        pass
+
+                for code in incoming_codes:
+                    if not is_valid_activation_code(code):
+                        invalid_codes += 1
+                        continue
+                    try:
+                        conn.execute(
+                            "INSERT INTO activation_codes(code, device_sn, activated_at) VALUES(?, '', '')",
+                            (code,),
+                        )
+                        added_codes += 1
                     except sqlite3.IntegrityError:
                         pass
                 conn.commit()
 
-        print(f"[Admin] 添加 {added} 个激活码")
+        print(
+            f"[Admin] 添加 MAC {added_macs} 个(非法 {invalid_macs})，"
+            f"激活码 {added_codes} 个(非法 {invalid_codes})"
+        )
         self._redirect('/')
 
-    # ── 管理：删除激活码 ──────────────────────
+    # ── 管理：删除认证数据（MAC / 激活码） ─────
 
     def _admin_delete_code(self):
         body = self._read_body()
         if body is None:
             return
         params = parse_qs(body)
-        code = params.get('code', [''])[0].strip()
+        kind = params.get('kind', ['auto'])[0].strip().lower()
+        mac = normalize_mac(params.get('mac', [''])[0].strip())
+        code = normalize_activation_code(params.get('code', [''])[0].strip())
 
-        if not code:
+        if kind == 'mac' and not mac:
+            self.send_error(400, "MAC 不能为空")
+            return
+        if kind == 'code' and not code:
             self.send_error(400, "激活码不能为空")
             return
 
         with db_lock:
             with get_conn() as conn:
-                conn.execute("DELETE FROM activation_codes WHERE code=?", (code,))
+                if kind == 'mac' or (kind == 'auto' and mac and not code):
+                    conn.execute("DELETE FROM device_whitelist WHERE mac=?", (mac,))
+                    print(f"[Admin] 删除 MAC 白名单: {mac}")
+                else:
+                    target_code = code or normalize_activation_code(params.get('mac', [''])[0].strip())
+                    if not target_code:
+                        self.send_error(400, "删除参数不能为空")
+                        return
+                    conn.execute("DELETE FROM activation_codes WHERE code=?", (target_code,))
+                    print(f"[Admin] 删除激活码: {target_code}")
                 conn.commit()
-
-        print(f"[Admin] 删除激活码: {code}")
         self._redirect('/')
 
     # ── 管理页面 ──────────────────────────────
@@ -699,33 +1181,76 @@ class Handler(BaseHTTPRequestHandler):
 
         with db_lock:
             with get_conn() as conn:
-                codes      = conn.execute(
+                mac_rows   = conn.execute(
+                    "SELECT mac, first_seen_at, last_seen_at, created_at FROM device_whitelist ORDER BY created_at DESC, mac"
+                ).fetchall()
+                code_rows_data = conn.execute(
                     "SELECT code, device_sn, activated_at FROM activation_codes ORDER BY code"
                 ).fetchall()
-                latest_ver = conn.execute(
-                    "SELECT * FROM app_versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1"
+                latest_smartcheck = conn.execute(
+                    "SELECT * FROM app_versions WHERE is_latest=1 AND device_type='smartcheck' ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                latest_scale = conn.execute(
+                    "SELECT * FROM app_versions WHERE is_latest=1 AND device_type='sample_scale' ORDER BY id DESC LIMIT 1"
                 ).fetchone()
                 versions   = conn.execute(
                     "SELECT * FROM app_versions ORDER BY id DESC LIMIT 20"
                 ).fetchall()
 
-        total  = len(codes)
-        used   = sum(1 for r in codes if r["activated_at"])
-        unused = total - used
+        mac_total  = len(mac_rows)
+        mac_used   = sum(1 for r in mac_rows if r["first_seen_at"])
+        mac_unused = mac_total - mac_used
 
-        next_vc      = (latest_ver["version_code"] + 1) if latest_ver else 1
-        cur_ver_text = (
-            f'{latest_ver["version_name"]} (versionCode={latest_ver["version_code"]})'
-            if latest_ver else "尚未发布"
+        code_total  = len(code_rows_data)
+        code_used   = sum(1 for r in code_rows_data if (r["device_sn"] or '').strip())
+        code_unused = code_total - code_used
+
+        next_vc_sc      = (latest_smartcheck["version_code"] + 1) if latest_smartcheck else 1
+        next_vc_scale   = (latest_scale["version_code"] + 1) if latest_scale else 1
+        cur_ver_sc = (
+            f'{latest_smartcheck["version_name"]} (versionCode={latest_smartcheck["version_code"]})'
+            if latest_smartcheck else "尚未发布"
+        )
+        cur_ver_scale = (
+            f'{latest_scale["version_name"]} (versionCode={latest_scale["version_code"]})'
+            if latest_scale else "尚未发布"
         )
 
-        # 激活码行
-        code_rows = ""
-        for r in codes:
-            status  = r["activated_at"] or "未使用"
-            cls     = "used" if r["activated_at"] else "unused"
+        # MAC 白名单行
+        mac_table_rows = ""
+        for r in mac_rows:
+            if r["first_seen_at"]:
+                status = f"已验证（首次 {r['first_seen_at']} / 最近 {r['last_seen_at']}）"
+            else:
+                status = "未验证"
+            cls = "used" if r["first_seen_at"] else "unused"
             del_btn = (
                 f'<form method="POST" action="/admin/codes/delete" style="display:inline">'
+                f'<input type="hidden" name="kind" value="mac">'
+                f'<input type="hidden" name="mac" value="{r["mac"]}">'
+                f'<input type="submit" value="删除" '
+                f'onclick="return confirm(\'确定删除？\')" '
+                f'style="background:#DC2626;padding:3px 8px;border:none;color:#fff;'
+                f'cursor:pointer;border-radius:3px;font-size:12px">'
+                f'</form>'
+            )
+            mac_table_rows += (
+                f'<tr class="{cls}">'
+                f'<td>{r["mac"]}</td><td>{status}</td><td>{del_btn}</td></tr>\n'
+            )
+
+        # 激活码行
+        code_table_rows = ""
+        for r in code_rows_data:
+            bound_sn = (r["device_sn"] or '').strip()
+            activated_at = (r["activated_at"] or '').strip()
+            status = f"已绑定（{bound_sn or '-'}）" if bound_sn else "未使用"
+            if activated_at:
+                status += f" / {activated_at}"
+            cls = "used" if bound_sn else "unused"
+            del_btn = (
+                f'<form method="POST" action="/admin/codes/delete" style="display:inline">'
+                f'<input type="hidden" name="kind" value="code">'
                 f'<input type="hidden" name="code" value="{r["code"]}">'
                 f'<input type="submit" value="删除" '
                 f'onclick="return confirm(\'确定删除？\')" '
@@ -733,7 +1258,7 @@ class Handler(BaseHTTPRequestHandler):
                 f'cursor:pointer;border-radius:3px;font-size:12px">'
                 f'</form>'
             )
-            code_rows += (
+            code_table_rows += (
                 f'<tr class="{cls}">'
                 f'<td>{r["code"]}</td><td>{status}</td><td>{del_btn}</td></tr>\n'
             )
@@ -742,9 +1267,15 @@ class Handler(BaseHTTPRequestHandler):
         ver_rows = ""
         for v in versions:
             tag = " <span style='color:#16a34a;font-weight:bold'>[当前]</span>" if v["is_latest"] else ""
+            dt = v["device_type"] if "device_type" in v.keys() else "smartcheck"
+            if dt == "sample_scale":
+                dt_badge = '<span style="background:#dbeafe;color:#2563eb;padding:2px 6px;border-radius:3px;font-size:11px">留样秤</span>'
+            else:
+                dt_badge = '<span style="background:#dcfce7;color:#16a34a;padding:2px 6px;border-radius:3px;font-size:11px">晨检仪</span>'
             ver_rows += (
                 f'<tr><td>{v["version_code"]}</td>'
                 f'<td>{v["version_name"]}{tag}</td>'
+                f'<td>{dt_badge}</td>'
                 f'<td style="font-size:12px;word-break:break-all">'
                 f'<a href="{v["apk_url"]}" target="_blank">{v["apk_url"]}</a></td>'
                 f'<td>{v["release_notes"] or "—"}</td>'
@@ -811,16 +1342,30 @@ class Handler(BaseHTTPRequestHandler):
 
 <!-- 统计 -->
 <div class="card">
-  <h2>激活码统计</h2>
-  <span class="stat">总计：<strong>{total}</strong></span>
-  <span class="stat">已使用：<strong style="color:#dc2626">{used}</strong></span>
-  <span class="stat">未使用：<strong style="color:#16a34a">{unused}</strong></span>
+        <h2>设备认证统计</h2>
+    <div style="margin-bottom:6px"><strong>MAC 白名单</strong></div>
+    <span class="stat">总计：<strong>{mac_total}</strong></span>
+        <span class="stat">已验证：<strong style="color:#dc2626">{mac_used}</strong></span>
+        <span class="stat">未验证：<strong style="color:#16a34a">{mac_unused}</strong></span>
+    <div style="margin:14px 0 6px"><strong>激活码</strong></div>
+    <span class="stat">总计：<strong>{code_total}</strong></span>
+        <span class="stat">已使用：<strong style="color:#dc2626">{code_used}</strong></span>
+        <span class="stat">未使用：<strong style="color:#16a34a">{code_unused}</strong></span>
 </div>
 
 <!-- 发布新版本 -->
 <div class="card">
   <h2>发布新版本</h2>
-  <p style="margin:0 0 12px;color:#6b7280">当前最新：<strong>{cur_ver_text}</strong></p>
+  <div style="margin:0 0 12px;color:#6b7280">
+    <div>🟢 晨检仪 当前最新：<strong>{cur_ver_sc}</strong></div>
+    <div>🔵 留样秤 当前最新：<strong>{cur_ver_scale}</strong></div>
+  </div>
+
+  <label>设备类型</label>
+  <select id="device_type" style="width:100%;padding:7px;margin:3px 0 10px;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px" onchange="onDeviceTypeChange()">
+    <option value="smartcheck">🟢 晨检仪</option>
+    <option value="sample_scale">🔵 留样秤</option>
+  </select>
 
   <div id="drop-zone" onclick="document.getElementById('apk-file').click()">
     <p style="margin:0;font-size:15px">
@@ -831,8 +1376,8 @@ class Handler(BaseHTTPRequestHandler):
   </div>
   <div id="file-info"></div>
 
-  <label>versionCode（整数，需大于 {latest_ver["version_code"] if latest_ver else 0}，建议 {next_vc}）</label>
-  <input type="number" id="version_code" placeholder="{next_vc}" min="1">
+  <label>versionCode（整数，建议 <span id="suggest-vc">{next_vc_sc}</span>）</label>
+  <input type="number" id="version_code" placeholder="{next_vc_sc}" min="1">
 
   <label>版本名称（如 1.0.7）</label>
   <input type="text" id="version_name" placeholder="1.0.7">
@@ -848,17 +1393,19 @@ class Handler(BaseHTTPRequestHandler):
 <div class="card">
   <h2>版本历史</h2>
   <table>
-    <tr><th>versionCode</th><th>版本名</th><th>APK 地址</th><th>更新说明</th><th>发布时间</th></tr>
-    {ver_rows if ver_rows else '<tr><td colspan="5" style="text-align:center;color:#9ca3af">暂无记录</td></tr>'}
+    <tr><th>versionCode</th><th>版本名</th><th>设备类型</th><th>APK 地址</th><th>更新说明</th><th>发布时间</th></tr>
+    {ver_rows if ver_rows else '<tr><td colspan="6" style="text-align:center;color:#9ca3af">暂无记录</td></tr>'}
   </table>
 </div>
 
-<!-- 添加激活码 -->
+<!-- 添加认证数据 -->
 <div class="card">
-  <h2>添加激活码</h2>
+        <h2>添加认证数据</h2>
   <form method="POST" action="/admin/codes/add">
-    <label>激活码（每行一个，或逗号分隔）</label>
-    <textarea name="codes" rows="4" placeholder="CODE001&#10;CODE002&#10;..."></textarea>
+                <label>MAC 地址（每行一个，或逗号分隔）</label>
+        <textarea name="macs" rows="4" placeholder="AA:BB:CC:DD:EE:FF&#10;11:22:33:44:55:66&#10;..."></textarea>
+                <label>激活码（每行一个，或逗号分隔）</label>
+                <textarea name="codes" rows="4" placeholder="ABCD-1234&#10;QWER_5678&#10;..."></textarea>
     <input type="submit" value="添加">
   </form>
 </div>
@@ -892,16 +1439,27 @@ class Handler(BaseHTTPRequestHandler):
   </p>
 </div>
 
+<!-- MAC 白名单列表 -->
+<div class="card">
+        <h2>MAC 白名单列表（共 {mac_total} 个）</h2>
+  <table>
+        <tr><th>MAC 地址</th><th>状态 / 验证时间</th><th>操作</th></tr>
+                {mac_table_rows if mac_table_rows else '<tr><td colspan="3" style="text-align:center;color:#9ca3af">暂无数据</td></tr>'}
+    </table>
+</div>
+
 <!-- 激活码列表 -->
 <div class="card">
-  <h2>激活码列表（共 {total} 个）</h2>
-  <table>
-    <tr><th>激活码</th><th>状态 / 激活时间</th><th>操作</th></tr>
-    {code_rows}
+        <h2>激活码列表（共 {code_total} 个）</h2>
+    <table>
+                <tr><th>激活码</th><th>状态 / 绑定信息</th><th>操作</th></tr>
+                {code_table_rows if code_table_rows else '<tr><td colspan="3" style="text-align:center;color:#9ca3af">暂无数据</td></tr>'}
   </table>
 </div>
 
 <script>
+const NEXT_VC = {{ smartcheck: {next_vc_sc}, sample_scale: {next_vc_scale} }};
+
 const zone = document.getElementById('drop-zone');
 zone.addEventListener('dragover',  e => {{ e.preventDefault(); zone.classList.add('dragover'); }});
 zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
@@ -909,6 +1467,20 @@ zone.addEventListener('drop', e => {{
   e.preventDefault(); zone.classList.remove('dragover');
   if (e.dataTransfer.files.length) onFileSelected(e.dataTransfer.files[0]);
 }});
+
+function onDeviceTypeChange() {{
+  const dt = document.getElementById('device_type').value;
+  const suggest = NEXT_VC[dt] || 1;
+  document.getElementById('suggest-vc').textContent = suggest;
+  document.getElementById('version_code').placeholder = suggest;
+  // 清空之前的输入，让管理员重新填写
+  document.getElementById('version_code').value = '';
+  document.getElementById('version_name').value = '';
+  document.getElementById('release_notes').value = '';
+  document.getElementById('file-info').innerHTML = '';
+  document.getElementById('up-progress').innerHTML = '';
+  document.getElementById('apk-file').value = '';
+}}
 
 function onFileSelected(file) {{
   if (!file) return;
@@ -931,6 +1503,7 @@ function doUpload() {{
   const versionCode = document.getElementById('version_code').value.trim();
   const versionName = document.getElementById('version_name').value.trim();
   const notes       = document.getElementById('release_notes').value.trim();
+  const deviceType  = document.getElementById('device_type').value;
   const prog        = document.getElementById('up-progress');
   const btn         = document.getElementById('upload-btn');
 
@@ -948,6 +1521,7 @@ function doUpload() {{
   fd.append('version_code',  versionCode);
   fd.append('version_name',  versionName);
   fd.append('release_notes', notes);
+  fd.append('device_type',   deviceType);
 
   const xhr = new XMLHttpRequest();
   xhr.upload.onprogress = e => {{
@@ -968,6 +1542,7 @@ function doUpload() {{
         setTimeout(() => location.reload(), 2000);
       }} else {{
         prog.innerHTML = `<span style="color:#dc2626">✗ 失败：${{res.message}}</span>`;
+        alert('发布失败：' + (res.message || '未知错误'));
       }}
     }} catch(e) {{
       prog.innerHTML = `<span style="color:#dc2626">✗ 服务器错误(${{xhr.status}}): ${{e.message}}</span>`;
@@ -1047,14 +1622,13 @@ if __name__ == '__main__':
     port   = 8080
     server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
     print('\n' + '=' * 50)
-    print('SmartCheck 激活 + 版本管理服务器')
+    print('SmartCheck 授权 + 版本管理服务器')
     print('=' * 50)
     print(f'端口        : {port}')
     print(f'数据库      : {DB_PATH}')
     print(f'APK 目录    : {UPLOADS_DIR}')
     print(f'管理页面    : http://localhost:{port}/')
-    print(f'万能激活码  : {"已启用" if get_master_activation_code() else "未启用"}')
-    print(f'激活接口    : POST http://localhost:{port}/api/device/activate')
+    print(f'授权接口    : POST http://localhost:{port}/api/device/activate')
     print(f'版本检查    : GET  http://localhost:{port}/api/app/version/latest')
     print(f'版本历史    : GET  http://localhost:{port}/api/app/version/history')
     print('=' * 50 + '\n')
