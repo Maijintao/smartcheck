@@ -40,6 +40,28 @@ internal fun compareVersionNames(first: String, second: String): Int? {
     return 0
 }
 
+internal fun haveMatchingSignatures(
+    currentSignatures: List<ByteArray>,
+    archiveSignatures: List<ByteArray>,
+): Boolean {
+    if (currentSignatures.isEmpty() || currentSignatures.size != archiveSignatures.size) {
+        return false
+    }
+
+    val unmatchedArchiveSignatures = archiveSignatures.toMutableList()
+    return currentSignatures.all { currentSignature ->
+        val matchIndex = unmatchedArchiveSignatures.indexOfFirst { archiveSignature ->
+            currentSignature.contentEquals(archiveSignature)
+        }
+        if (matchIndex < 0) {
+            false
+        } else {
+            unmatchedArchiveSignatures.removeAt(matchIndex)
+            true
+        }
+    }
+}
+
 object AppUpdateChecker {
 
     private const val TAG = "AppUpdateChecker"
@@ -312,7 +334,7 @@ object AppUpdateChecker {
     private fun hasMatchingSignature(currentInfo: PackageInfo, archiveInfo: PackageInfo): Boolean {
         val currentSignatures = currentInfo.signaturesCompat()
         val archiveSignatures = archiveInfo.signaturesCompat()
-        return currentSignatures.isNotEmpty() && currentSignatures == archiveSignatures
+        return haveMatchingSignatures(currentSignatures, archiveSignatures)
     }
 
     private fun PackageInfo.signaturesCompat(): List<ByteArray> {
@@ -320,12 +342,10 @@ object AppUpdateChecker {
             val signingInfo = signingInfo ?: return emptyList()
             signingInfo.apkContentsSigners
                 .map { it.toByteArray() }
-                .sortedBy { it.contentHashCode() }
         } else {
             @Suppress("DEPRECATION")
             signatures
                 ?.map { it.toByteArray() }
-                ?.sortedBy { it.contentHashCode() }
                 ?: emptyList()
         }
     }

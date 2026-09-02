@@ -23,8 +23,8 @@ android {
         applicationId = "com.smartcheck.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "1.0.24"
+        versionCode = 28
+        versionName = "1.0.26"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
