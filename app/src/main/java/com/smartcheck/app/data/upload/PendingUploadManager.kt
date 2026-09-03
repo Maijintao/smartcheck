@@ -11,9 +11,10 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,7 +32,7 @@ class PendingUploadManager @Inject constructor(
         private val RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 30_000L, 60_000L)
     }
 
-    private val isProcessing = AtomicBoolean(false)
+    private val processingMutex = Mutex()
 
     fun enqueue(recordId: Long) {
         appScope.launch(Dispatchers.IO) {
@@ -40,76 +41,112 @@ class PendingUploadManager @Inject constructor(
     }
 
     suspend fun processPendingUploads() {
-        if (!isProcessing.compareAndSet(false, true)) {
+        if (!processingMutex.tryLock()) {
             Timber.d("Upload queue already processing, skipping")
             return
         }
 
         try {
-            if (settingsRepository.platformUrl.value.isBlank() || settingsRepository.apiKey.value.isBlank()) {
-                Timber.d("Platform not configured, keeping pending uploads queued")
-                return
-            }
+            processPendingUploadsLocked(continueAfterRetryableFailure = false)
+        } finally {
+            processingMutex.unlock()
+        }
+    }
 
-            val pendingRecords = withContext(Dispatchers.IO) {
-                recordDao.getPendingUploads(System.currentTimeMillis())
-            }
+    suspend fun uploadAllUnuploaded(): ManualUploadResult = processingMutex.withLock {
+        val requestedCount = withContext(Dispatchers.IO) {
+            recordDao.countUnuploadedRecords()
+        }
+        if (requestedCount == 0) {
+            return@withLock ManualUploadResult.NothingToUpload
+        }
+        if (settingsRepository.platformUrl.value.isBlank() || settingsRepository.apiKey.value.isBlank()) {
+            return@withLock ManualUploadResult.ConfigurationMissing(requestedCount)
+        }
 
-            if (pendingRecords.isEmpty()) {
-                Timber.d("No pending records to upload")
-                return
-            }
+        withContext(Dispatchers.IO) {
+            recordDao.prepareUnuploadedForManualRetry()
+        }
+        val uploadedCount = processPendingUploadsLocked(continueAfterRetryableFailure = true)
 
-            Timber.d("Found ${pendingRecords.size} pending records to upload")
+        val remainingCount = withContext(Dispatchers.IO) {
+            recordDao.countUnuploadedRecords()
+        }
+        ManualUploadResult.Finished(
+            requestedCount = requestedCount,
+            uploadedCount = uploadedCount.coerceAtMost(requestedCount),
+            remainingCount = remainingCount,
+        )
+    }
 
-            // 优先使用用户配置的设备ID，其次 MAC 地址，最后回退到自动生成的设备ID
-            val currentDeviceId = settingsRepository.deviceId.value.takeIf { it.isNotBlank() }
-                ?: DeviceAuth.getCurrentDeviceMac()
-                ?: DeviceInfo.getDeviceId(context)
+    private suspend fun processPendingUploadsLocked(continueAfterRetryableFailure: Boolean): Int {
+        if (settingsRepository.platformUrl.value.isBlank() || settingsRepository.apiKey.value.isBlank()) {
+            Timber.d("Platform not configured, keeping pending uploads queued")
+            return 0
+        }
 
-            for (pendingEntity in pendingRecords) {
-                try {
-                    val recordUuid = pendingEntity.recordUuid.ifBlank { UUID.randomUUID().toString() }
-                    val uploadDeviceId = pendingEntity.uploadDeviceId.ifBlank { currentDeviceId }
-                    if (pendingEntity.uploadDeviceId.isBlank()) {
-                        withContext(Dispatchers.IO) {
-                            recordDao.claimUploadIdentity(pendingEntity.id, recordUuid, uploadDeviceId)
-                        }
+        val pendingRecords = withContext(Dispatchers.IO) {
+            recordDao.getPendingUploads(System.currentTimeMillis())
+        }
+
+        if (pendingRecords.isEmpty()) {
+            Timber.d("No pending records to upload")
+            return 0
+        }
+
+        Timber.d("Found ${pendingRecords.size} pending records to upload")
+        var uploadedCount = 0
+
+        // 优先使用用户配置的设备ID，其次 MAC 地址，最后回退到自动生成的设备ID
+        val currentDeviceId = settingsRepository.deviceId.value.takeIf { it.isNotBlank() }
+            ?: DeviceAuth.getCurrentDeviceMac()
+            ?: DeviceInfo.getDeviceId(context)
+
+        for (pendingEntity in pendingRecords) {
+            try {
+                val recordUuid = pendingEntity.recordUuid.ifBlank { UUID.randomUUID().toString() }
+                val uploadDeviceId = pendingEntity.uploadDeviceId.ifBlank { currentDeviceId }
+                if (pendingEntity.uploadDeviceId.isBlank()) {
+                    withContext(Dispatchers.IO) {
+                        recordDao.claimUploadIdentity(pendingEntity.id, recordUuid, uploadDeviceId)
                     }
+                }
 
-                    // 认领上传身份后重新读取，确保首次发送与之后重试使用完全相同的业务内容。
-                    val entity = withContext(Dispatchers.IO) {
-                        recordDao.getRecordById(pendingEntity.id)
-                    } ?: continue
-                    if (entity.uploadDeviceId.isBlank()) continue
+                // 认领上传身份后重新读取，确保首次发送与之后重试使用完全相同的业务内容。
+                val entity = withContext(Dispatchers.IO) {
+                    recordDao.getRecordById(pendingEntity.id)
+                } ?: continue
+                if (entity.uploadDeviceId.isBlank()) continue
 
-                    val record = entity.toDomain()
-                    val result = cloudRecordService.uploadToPlatform(record, entity.uploadDeviceId)
+                val record = entity.toDomain()
+                val result = cloudRecordService.uploadToPlatform(record, entity.uploadDeviceId)
 
-                    result.onSuccess {
-                        withContext(Dispatchers.IO) {
-                            recordDao.markAsUploaded(entity.id)
+                result.onSuccess {
+                    withContext(Dispatchers.IO) {
+                        recordDao.markAsUploaded(entity.id)
+                    }
+                    uploadedCount++
+                    Timber.d("Record uploaded successfully: id=${entity.id}")
+                }.onFailure { e ->
+                    if (e is RetryableUploadException) {
+                        markRetryableFailure(entity, e)
+                        Timber.w(e, "Temporary upload failure for record id=${entity.id}; retry scheduled")
+                        if (!continueAfterRetryableFailure) {
+                            return uploadedCount
                         }
-                        Timber.d("Record uploaded successfully: id=${entity.id}")
-                    }.onFailure { e ->
-                        if (e is RetryableUploadException) {
-                            markRetryableFailure(entity, e)
-                            Timber.w(e, "Temporary upload failure for record id=${entity.id}; retry scheduled")
-                            return
-                        }
+                    } else {
                         markPermanentFailure(entity.id, e)
                     }
-                } catch (e: java.util.concurrent.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    markPermanentFailure(pendingEntity.id, e)
                 }
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                markPermanentFailure(pendingEntity.id, e)
             }
-
-            Timber.d("Pending upload queue processed")
-        } finally {
-            isProcessing.set(false)
         }
+
+        Timber.d("Pending upload queue processed")
+        return uploadedCount
     }
 
     private suspend fun markRetryableFailure(entity: RecordEntity, error: Throwable) {
@@ -142,4 +179,14 @@ class PendingUploadManager @Inject constructor(
         }
         Timber.e(error, "Permanent upload failure for record id=$recordId; automatic retry stopped")
     }
+}
+
+sealed interface ManualUploadResult {
+    data object NothingToUpload : ManualUploadResult
+    data class ConfigurationMissing(val pendingCount: Int) : ManualUploadResult
+    data class Finished(
+        val requestedCount: Int,
+        val uploadedCount: Int,
+        val remainingCount: Int,
+    ) : ManualUploadResult
 }

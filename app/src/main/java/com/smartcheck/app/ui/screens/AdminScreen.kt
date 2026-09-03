@@ -20,14 +20,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,6 +77,9 @@ fun AdminScreen(
 ) {
     val records by viewModel.records.collectAsState()
     val query by viewModel.query.collectAsState()
+    val unuploadedCount by viewModel.unuploadedCount.collectAsState()
+    val manualUploadState by viewModel.manualUploadState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
     var selectedTimeFilter by remember { mutableStateOf(TimeFilter.TODAY) }
     var statusFilter by remember { mutableStateOf("") }
     var selectedRecord by remember { mutableStateOf<RecordEntity?>(null) }
@@ -92,6 +99,13 @@ fun AdminScreen(
         viewModel.setHandStatusFilter(statusValue)
     }
 
+    LaunchedEffect(manualUploadState.message) {
+        manualUploadState.message?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeManualUploadMessage()
+        }
+    }
+
     // 时间筛选选项
     val timeFilterOptions = listOf(
         "今天" to TimeFilter.TODAY,
@@ -104,18 +118,18 @@ fun AdminScreen(
     val statusOptions = listOf("全部", "通过", "不合格")
 
     val primaryBlue = Color(0xFF2563EB)
-    val primaryLight = Color(0xFFEFF6FF)
     val bgMain = Color(0xFFF1F5F9)
     val textMain = Color(0xFF1E293B)
     val textMuted = Color(0xFF64748B)
     val borderColor = Color(0xFFE2E8F0)
     val success = Color(0xFF10B981)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(bgMain)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(bgMain)
+        ) {
         // 顶部栏
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -154,13 +168,44 @@ fun AdminScreen(
                         )
                     }
 
-                    if (onNavigateExport != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = onNavigateExport,
-                            colors = ButtonDefaults.buttonColors(containerColor = success),
+                            onClick = viewModel::uploadAllUnuploaded,
+                            enabled = !manualUploadState.isUploading,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(text = "导出记录报表", color = Color.White, fontSize = 16.sp)
+                            if (manualUploadState.isUploading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.CloudUpload,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (manualUploadState.isUploading) {
+                                    "正在上传"
+                                } else {
+                                    "上传待传记录（$unuploadedCount）"
+                                },
+                                fontSize = 16.sp,
+                            )
+                        }
+
+                        if (onNavigateExport != null) {
+                            Button(
+                                onClick = onNavigateExport,
+                                colors = ButtonDefaults.buttonColors(containerColor = success),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(text = "导出记录报表", color = Color.White, fontSize = 16.sp)
+                            }
                         }
                     }
                 }
@@ -283,7 +328,13 @@ fun AdminScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     selectedRecord?.let { record ->
