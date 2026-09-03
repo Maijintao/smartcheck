@@ -157,3 +157,15 @@ Hardware/native specifics:
 4. Avoid editing generated/native build outputs (e.g., `.cxx/**`, `build/**`).
 5. When tests/build fail, use the error output to fix; ensure Java 17 is used.
 6. If you need to change startup behavior for debugging, prefer toggling `startDestination` in `app/.../AppNavigation.kt` and keep the diff minimal.
+
+## Release Packaging Requirements
+
+- Every new APK release must increment both `versionCode` and `versionName` in `app/build.gradle.kts`.
+- Build the production artifact with `gradlew.bat :app:assembleRelease` on Windows.
+- Keep the release signing configuration unchanged: use repository `smartcheck.jks` with alias `smartcheck`.
+- Before delivery, verify the APK is a release build and confirm its package name, `versionCode`, and `versionName` with Android build tools.
+- Verify the signer certificate SHA-256 matches the known signed baseline
+  `C:\Users\82417\Desktop\morning-check-terminal-1.0.26-release.apk`.
+- The expected signer certificate SHA-256 is
+  `cb0512e8d77a3a3015365dde75042c5fdecb447ba2923d03404ee5d0b662c76c`.
+- Preserve the output naming convention `morning-check-terminal-{versionName}-release.apk`.

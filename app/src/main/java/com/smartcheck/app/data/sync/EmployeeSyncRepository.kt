@@ -111,12 +111,12 @@ class EmployeeSyncRepository @Inject constructor(
             val now = System.currentTimeMillis()
 
             // 判断图片 action
-            val faceAction = determineImageAction(
+            val faceAction = determineEmployeeImageAction(
                 newPath = faceImagePath,
                 oldSha256 = user.faceImageSha256,
                 newSha256 = faceImagePath?.let { sha256OfFile(it) }
             )
-            val certAction = determineImageAction(
+            val certAction = determineEmployeeImageAction(
                 newPath = certImagePath,
                 oldSha256 = user.healthCertImageSha256,
                 newSha256 = certImagePath?.let { sha256OfFile(it) }
@@ -340,6 +340,16 @@ class EmployeeSyncRepository @Inject constructor(
         userDao.updateSyncStatus(employeeId, "RECOVERY_REQUIRED")
     }
 
+    suspend fun recordDeletedVersion(employeeId: String, platformVersion: Long) =
+        withContext(Dispatchers.IO) {
+            deletedVersionDao.insert(
+                DeletedEmployeeVersionEntity(
+                    employeeId = employeeId,
+                    platformVersion = platformVersion,
+                )
+            )
+        }
+
     suspend fun getConflictedEmployees(): List<UserEntity> = withContext(Dispatchers.IO) {
         userDao.getUsersBySyncStatus("CONFLICT")
     }
@@ -413,21 +423,6 @@ class EmployeeSyncRepository @Inject constructor(
         return inserted
     }
 
-    /** 判断图片 action */
-    private fun determineImageAction(
-        newPath: String?,
-        oldSha256: String?,
-        newSha256: String?
-    ): String {
-        return when {
-            newPath == null && oldSha256 == null -> "KEEP"    // 都没有，保持不变
-            newPath == null && oldSha256 != null -> "CLEAR"   // 删除图片
-            newPath != null && oldSha256 == null -> "REPLACE" // 新增图片
-            newSha256 != oldSha256 -> "REPLACE"               // 图片变化
-            else -> "KEEP"                                    // 图片未变化
-        }
-    }
-
     /** User → UploadEmployee 辅助 */
     private fun User.toUploadPayload(
         faceImagePath: String?,
@@ -453,4 +448,13 @@ class EmployeeSyncRepository @Inject constructor(
             healthCertImageSha256 = certSha256
         )
     }
+}
+
+internal fun determineEmployeeImageAction(
+    newPath: String?,
+    oldSha256: String?,
+    newSha256: String?,
+): String {
+    if (newPath == null) return "KEEP"
+    return if (newSha256 != oldSha256) "REPLACE" else "KEEP"
 }

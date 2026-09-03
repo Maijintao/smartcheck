@@ -68,17 +68,18 @@ class ConflictHandler @Inject constructor(
             val remoteData = remoteResult.getOrThrow()
 
             if (remoteData.deleted || remoteData.employee == null) {
-                // 平台已删除该员工
-                syncRepo.applyRemoteDelete(employeeId, remoteData.version)
+                // 用户已明确接受平台删除，不再按自动同步的冲突保护逻辑保留本地员工。
+                userDao.deleteFromRemote(employeeId)
+                syncRepo.recordDeletedVersion(employeeId, remoteData.version)
             } else {
                 // 应用平台数据
                 val entity = remoteData.employee.toDomain().toEntity()
                 syncRepo.applyRemoteUpsert(entity)
+                userDao.updateSyncStatus(employeeId, "SYNCED")
             }
 
             // 删除冲突的 outbox 条目
-            val conflictedOps = outboxDao.getAllPendingOrInProgress()
-                .filter { it.employeeId == employeeId }
+            val conflictedOps = outboxDao.getUnresolvedByEmployeeId(employeeId)
             conflictedOps.forEach { outboxDao.delete(it.operationId) }
 
             Timber.d("$TAG: 接受平台数据: $employeeId, version=${remoteData.version}")
@@ -109,8 +110,7 @@ class ConflictHandler @Inject constructor(
             userDao.updateSyncStatus(employeeId, "PENDING_UPLOAD")
 
             // 删除旧的冲突 outbox 条目
-            val conflictedOps = outboxDao.getAllPendingOrInProgress()
-                .filter { it.employeeId == employeeId }
+            val conflictedOps = outboxDao.getUnresolvedByEmployeeId(employeeId)
             conflictedOps.forEach { outboxDao.delete(it.operationId) }
 
             // 重新从 DB 获取最新实体（包含更新后的 platformVersion）

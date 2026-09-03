@@ -33,7 +33,6 @@ class DeviceHeartbeatManager @Inject constructor(
 ) {
     companion object {
         private const val DEFAULT_HEARTBEAT_INTERVAL_SEC = 30 // 默认心跳间隔 30 秒
-        private const val HEARTBEAT_ENDPOINT = "/api/device/refresh"
         private const val REQUEST_TIMEOUT_MS = 20_000L // 整体请求超时 20 秒
     }
 
@@ -114,7 +113,7 @@ class DeviceHeartbeatManager @Inject constructor(
                 )
             }
 
-            val url = "$platformUrl$HEARTBEAT_ENDPOINT"
+            val url = PlatformUrlResolver.heartbeatUrl(platformUrl)
             Timber.d("[TestConnection] POST $url | api-key=${apiKey.take(8)}...")
 
             val startAt = System.currentTimeMillis()
@@ -196,7 +195,11 @@ class DeviceHeartbeatManager @Inject constructor(
             return
         }
 
-        val url = "$platformUrl$HEARTBEAT_ENDPOINT"
+        val url = runCatching { PlatformUrlResolver.heartbeatUrl(platformUrl) }
+            .getOrElse { error ->
+                Timber.w(error, "[Heartbeat] Invalid platform URL")
+                return
+            }
         val hadPreviousHeartbeat = lastHeartbeatAt > 0L
         lastHeartbeatAt = System.currentTimeMillis()
 

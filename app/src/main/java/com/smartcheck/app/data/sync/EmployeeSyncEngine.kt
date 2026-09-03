@@ -39,7 +39,7 @@ class EmployeeSyncEngine @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val imageHelper: ImageSyncHelper,
     private val faceEngine: FaceEngine,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
 ) {
     companion object {
         private const val TAG = "EmployeeSyncEngine"
@@ -81,6 +81,7 @@ class EmployeeSyncEngine @Inject constructor(
             try {
                 uploadOutbox()
             } catch (e: Exception) {
+                if (!isRetryableSyncFailure(e)) throw e
                 Timber.w(e, "$TAG: uploadOutbox 失败，继续拉取阶段")
             }
 
@@ -170,11 +171,15 @@ class EmployeeSyncEngine @Inject constructor(
 
     private suspend fun uploadOutbox() {
         while (true) {
-            val pending = outboxDao.getPending(MAX_OPS_PER_BATCH)
-            if (pending.isEmpty()) break
+            val queued = outboxDao.getPending(MAX_OPS_PER_BATCH)
+            if (queued.isEmpty()) break
 
-            val batchId = UUID.randomUUID().toString()
-            val deviceId = settingsRepository.deviceId.value.ifBlank { "UNKNOWN" }
+            // 同一员工的多次修改必须依次提交，上一条成功后的版本号会传给下一条。
+            val pending = queued.distinctBy { it.employeeId }
+
+            val batchId = stableSyncBatchId(pending)
+            val deviceId = settingsRepository.deviceId.value
+            require(deviceId.isNotBlank()) { "设备ID未配置，请在设置中配置设备ID" }
 
             val operations = pending.map { op ->
                 buildSyncOperation(op)
@@ -191,18 +196,21 @@ class EmployeeSyncEngine @Inject constructor(
             if (result.isFailure) {
                 val error = result.exceptionOrNull()
                 Timber.w("$TAG: uploadOutbox 失败: ${error?.message}")
-                // 网络错误等可重试的异常，标记 IN_PROGRESS 保留 operation_id 下次重试
                 pending.forEach { op ->
-                    outboxDao.incrementRetry(op.operationId, error?.message)
+                    if (isRetryableSyncFailure(error)) {
+                        outboxDao.incrementRetry(op.operationId, error?.message)
+                    } else {
+                        outboxDao.markFailed(op.operationId, error?.message)
+                    }
                 }
                 throw error ?: Exception("上传失败")
             }
 
             val response = result.getOrThrow()
-            handleUploadResponse(response, pending)
+            val allOperationsHandled = handleUploadResponse(response, pending)
 
-            // 如果本批全部处理完，继续检查下一批
-            if (response.results.size < pending.size) break
+            // 响应缺少某条结果时停止本轮，避免无进展循环；缺失条目保留待下次重试。
+            if (!allOperationsHandled) break
         }
     }
 
@@ -275,36 +283,72 @@ class EmployeeSyncEngine @Inject constructor(
     private suspend fun handleUploadResponse(
         response: UploadChangesResponse,
         operations: List<SyncOutboxEntity>
-    ) {
-        for (result in response.results) {
-            val op = operations.find { it.operationId == result.operationId } ?: continue
+    ): Boolean {
+        val resultsByOperationId = response.results.associateBy { it.operationId }
+        var allOperationsHandled = true
+
+        for (op in operations) {
+            val result = resultsByOperationId[op.operationId]
+            if (result == null) {
+                allOperationsHandled = false
+                outboxDao.incrementRetry(op.operationId, "平台响应缺少操作结果")
+                Timber.w("$TAG: 平台响应缺少操作结果 operationId=${op.operationId}")
+                continue
+            }
 
             when (result.status) {
                 SyncResultStatus.APPLIED -> {
-                    outboxDao.delete(op.operationId)
-                    // 更新本地员工的平台版本号
-                    if (result.employeeVersion != null) {
-                        userDao.updateVersionFromRemote(op.employeeId, result.employeeVersion)
-                        userDao.updateSyncStatus(op.employeeId, "SYNCED")
+                    if (!handleSuccessfulUpload(op, result.employeeVersion)) {
+                        allOperationsHandled = false
                     }
                 }
                 SyncResultStatus.DUPLICATE -> {
-                    // 已处理过，视为成功
-                    outboxDao.delete(op.operationId)
+                    // 平台已处理过，仍需回写版本，否则本地会把同一员工当成未上传。
+                    if (!handleSuccessfulUpload(op, result.employeeVersion)) {
+                        allOperationsHandled = false
+                    }
                 }
                 SyncResultStatus.CONFLICT -> {
                     // 标记冲突，等用户处理
-                    outboxDao.updateStatus(op.operationId, "FAILED")
+                    outboxDao.markConflict(op.operationId, result.message)
                     userDao.updateSyncStatus(op.employeeId, "CONFLICT")
                     Timber.w("$TAG: 版本冲突 employeeId=${op.employeeId}, errorCode=${result.errorCode}")
                 }
                 SyncResultStatus.REJECTED -> {
                     // 数据错误，标记失败，不重试
-                    outboxDao.updateStatus(op.operationId, "FAILED")
+                    outboxDao.markFailed(op.operationId, result.message)
                     Timber.w("$TAG: 操作被拒绝 employeeId=${op.employeeId}: ${result.message}")
                 }
             }
         }
+        return allOperationsHandled
+    }
+
+    private suspend fun handleSuccessfulUpload(
+        operation: SyncOutboxEntity,
+        employeeVersion: Long?,
+    ): Boolean {
+        if (operation.operationType == "UPSERT" && employeeVersion == null) {
+            outboxDao.incrementRetry(operation.operationId, "平台成功响应缺少 employee_version")
+            Timber.w("$TAG: 成功响应缺少 employee_version operationId=${operation.operationId}")
+            return false
+        }
+
+        outboxDao.delete(operation.operationId)
+        if (employeeVersion != null) {
+            if (operation.operationType == "DELETE") {
+                syncRepo.recordDeletedVersion(operation.employeeId, employeeVersion)
+            } else {
+                userDao.updateVersionFromRemote(operation.employeeId, employeeVersion)
+                outboxDao.updatePendingExpectedVersion(operation.employeeId, employeeVersion)
+                val hasPendingUpsert = outboxDao.countActiveUpserts(operation.employeeId) > 0
+                userDao.updateSyncStatus(
+                    operation.employeeId,
+                    if (hasPendingUpsert) "PENDING_UPLOAD" else "SYNCED",
+                )
+            }
+        }
+        return true
     }
 
     // ==================== 增量拉取 ====================
@@ -502,3 +546,21 @@ enum class SyncEngineStatus {
 
 /** 游标过期异常 — 需要触发快照同步 */
 class CursorExpiredException : Exception("平台游标已过期，需要快照同步")
+
+internal fun stableSyncBatchId(operations: List<SyncOutboxEntity>): String {
+    require(operations.isNotEmpty()) { "同步批次不能为空" }
+    val operationKey = operations.map { it.operationId }.sorted().joinToString("|")
+    return UUID.nameUUIDFromBytes(operationKey.toByteArray(Charsets.UTF_8)).toString()
+}
+
+internal fun isRetryableSyncFailure(error: Throwable?): Boolean {
+    if (error == null) return true
+    if (error is IllegalArgumentException) return false
+    if (error !is SyncApiException) return true
+
+    return error.httpStatus == 408 ||
+        error.httpStatus == 429 ||
+        error.httpStatus?.let { it >= 500 } == true ||
+        error.errorCode == 42900 ||
+        error.errorCode == 50001
+}

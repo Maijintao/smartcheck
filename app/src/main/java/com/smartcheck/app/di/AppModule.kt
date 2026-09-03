@@ -237,6 +237,7 @@ object AppModule {
      */
     @Provides
     @Singleton
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     fun provideHttpClient(): HttpClient {
         return HttpClient(CIO) {
             install(ContentNegotiation) {
@@ -244,6 +245,7 @@ object AppModule {
                     ignoreUnknownKeys = true
                     isLenient = true
                     encodeDefaults = true
+                    explicitNulls = true
                 })
             }
             install(io.ktor.client.plugins.HttpTimeout) {

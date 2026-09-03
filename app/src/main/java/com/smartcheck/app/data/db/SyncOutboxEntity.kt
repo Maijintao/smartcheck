@@ -45,7 +45,7 @@ data class SyncOutboxEntity(
     @ColumnInfo(name = "health_cert_image_sha256")
     val healthCertImageSha256: String? = null,
 
-    val status: String = "PENDING",       // PENDING/IN_PROGRESS/COMPLETED/FAILED
+    val status: String = "PENDING",       // PENDING/IN_PROGRESS/CONFLICT/COMPLETED/FAILED
 
     @ColumnInfo(name = "retry_count")
     val retryCount: Int = 0,

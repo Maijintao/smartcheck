@@ -2,6 +2,7 @@ package com.smartcheck.app.data.sync
 
 import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.repository.SettingsRepository
+import com.smartcheck.app.data.upload.PlatformUrlResolver
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.timeout
@@ -10,6 +11,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,6 +59,15 @@ data class SnapshotWrapper(
     fun errorMessage(): String = message.ifBlank { msg }
 }
 
+@Serializable
+private data class SyncErrorWrapper(
+    val code: Int = 0,
+    val message: String = "",
+    val msg: String = "",
+) {
+    fun errorMessage(): String = message.ifBlank { msg }
+}
+
 // ==================== 同步 API Client ====================
 
 /**
@@ -73,14 +85,11 @@ class EmployeeSyncApi @Inject constructor(
         private const val TIMEOUT_WITH_IMAGE = 60_000L // 含图片/快照的接口
     }
 
-    private val baseUrl: String
-        get() = settingsRepository.platformUrl.value.removeSuffix("/")
-
     private val apiKey: String
         get() = settingsRepository.apiKey.value
 
     private fun isConfigured(): Boolean =
-        baseUrl.isNotBlank() && apiKey.isNotBlank()
+        settingsRepository.platformUrl.value.isNotBlank() && apiKey.isNotBlank()
 
     /**
      * §7 POST /employees/changes — 上传员工变更
@@ -89,7 +98,9 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.post("$baseUrl/api/device/employees/changes") {
+                val response = client.post(
+                    PlatformUrlResolver.employeeChangesUrl(settingsRepository.platformUrl.value)
+                ) {
                     header("api-key", apiKey)
                     contentType(ContentType.Application.Json)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
@@ -116,7 +127,9 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/changes") {
+                val response = client.get(
+                    PlatformUrlResolver.employeeChangesUrl(settingsRepository.platformUrl.value)
+                ) {
                     header("api-key", apiKey)
                     parameter("after_cursor", afterCursor)
                     parameter("limit", limit)
@@ -143,7 +156,12 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/$employeeId") {
+                val response = client.get(
+                    PlatformUrlResolver.employeeDetailUrl(
+                        settingsRepository.platformUrl.value,
+                        employeeId,
+                    )
+                ) {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_NO_IMAGE }
                 }
@@ -168,7 +186,9 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/snapshot") {
+                val response = client.get(
+                    PlatformUrlResolver.employeeSnapshotUrl(settingsRepository.platformUrl.value)
+                ) {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
                 }
@@ -194,7 +214,12 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/images/$fileId") {
+                val response = client.get(
+                    PlatformUrlResolver.employeeImageUrl(
+                        settingsRepository.platformUrl.value,
+                        fileId,
+                    )
+                ) {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
                 }
@@ -219,14 +244,17 @@ class EmployeeSyncApi @Inject constructor(
 
     // ==================== 内部工具 ====================
 
-    private fun checkHttpError(
+    private suspend fun checkHttpError(
         response: HttpResponse,
         methodName: String
     ): Result<Nothing>? {
         if (response.status.isSuccess()) return null
-        val code = response.status.value
-        Timber.w("$TAG: $methodName HTTP error $code")
-        return Result.failure(SyncApiException(code, "HTTP $code"))
+        val httpStatus = response.status.value
+        val error = parseSyncApiException(httpStatus, response.bodyAsText())
+        Timber.w(
+            "$TAG: $methodName HTTP error $httpStatus, businessCode=${error.errorCode}: ${error.message}"
+        )
+        return Result.failure(error)
     }
 
     private fun checkBizCode(
@@ -236,12 +264,25 @@ class EmployeeSyncApi @Inject constructor(
     ): Result<Nothing>? {
         if (code == 200) return null
         Timber.w("$TAG: $methodName 业务错误 code=$code: $message")
-        return Result.failure(SyncApiException(code, message))
+        return Result.failure(SyncApiException(code, message, httpStatus = 200))
     }
+}
+
+internal fun parseSyncApiException(httpStatus: Int, responseBody: String): SyncApiException {
+    val wrapper = runCatching {
+        Json { ignoreUnknownKeys = true }.decodeFromString(SyncErrorWrapper.serializer(), responseBody)
+    }.getOrNull()
+    val businessCode = wrapper?.code?.takeIf { it != 0 } ?: httpStatus
+    val message = wrapper?.errorMessage()?.takeIf { it.isNotBlank() } ?: "HTTP $httpStatus"
+    return SyncApiException(businessCode, message, httpStatus)
 }
 
 /**
  * 同步 API 异常
  */
-class SyncApiException(val errorCode: Int, override val message: String) :
+class SyncApiException(
+    val errorCode: Int,
+    override val message: String,
+    val httpStatus: Int? = null,
+) :
     Exception("SyncAPI [$errorCode]: $message")
