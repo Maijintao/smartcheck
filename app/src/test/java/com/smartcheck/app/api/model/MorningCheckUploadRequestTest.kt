@@ -90,6 +90,45 @@ class MorningCheckUploadRequestTest {
     }
 
     @Test
+    fun `request includes required nullable image fields`() {
+        val request = MorningCheckUploadRequest(
+            deviceId = "DEVICE001",
+            timestamp = 1_716_259_200_000,
+            employees = listOf(
+                MorningCheckEmployee(
+                    employeeId = "E001",
+                    name = "Test User",
+                    recordId = 1001,
+                    recordUuid = "123e4567-e89b-42d3-a456-426614174000",
+                    userId = 1,
+                    temperature = 36.5f,
+                    isTempNormal = true,
+                    isHandNormal = null,
+                    isPassed = false,
+                    handStatus = "NOT_CHECKED",
+                    hasForeignObject = null,
+                    handAbnormalTypes = emptyList(),
+                    healthCertStatus = "VALID",
+                    symptomFlags = emptyList(),
+                    remark = "",
+                    photo = null,
+                    handPalmPhoto = null,
+                    handBackPhoto = null,
+                )
+            )
+        )
+
+        val employee = Json.parseToJsonElement(Json.encodeToString(request))
+            .jsonObject.getValue("employees").jsonArray.single().jsonObject
+
+        assertEquals("null", employee.getValue("is_hand_normal").toString())
+        assertEquals("null", employee.getValue("has_foreign_object").toString())
+        assertEquals("null", employee.getValue("photo").toString())
+        assertEquals("null", employee.getValue("hand_palm_photo").toString())
+        assertEquals("null", employee.getValue("hand_back_photo").toString())
+    }
+
+    @Test
     fun `response deserializes recordIds array`() {
         val response = Json.decodeFromString<MorningCheckUploadResponse>(
             """{"code":200,"message":"success","data":{"recordIds":["REC001"],"processTime":120,"warnings":[],"capture_image_url":"/face.jpg","hand_palm_image_url":"/palm.jpg","hand_back_image_url":null},"request_id":"REQ001"}"""

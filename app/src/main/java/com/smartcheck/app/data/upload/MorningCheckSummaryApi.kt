@@ -1,6 +1,5 @@
 package com.smartcheck.app.data.upload
 
-import com.smartcheck.app.api.PlatformApiContract
 import com.smartcheck.app.api.model.MorningCheckSummaryUploadRequest
 import com.smartcheck.app.api.model.MorningCheckSummaryUploadResponse
 import com.smartcheck.app.data.repository.SettingsRepository
@@ -38,20 +37,28 @@ class MorningCheckSummaryApi @Inject constructor(
     ): Result<MorningCheckSummaryUploadResponse> {
         return try {
             validateRequest(request)
-            val platformUrl = settingsRepository.platformUrl.value.trimEnd('/')
+            val configuredPlatformUrl = settingsRepository.platformUrl.value
             val apiKey = settingsRepository.apiKey.value
-            if (platformUrl.isBlank() || apiKey.isBlank()) {
+            if (configuredPlatformUrl.isBlank() || apiKey.isBlank()) {
                 return Result.failure(PermanentSummaryUploadException("平台地址或API Key未配置"))
             }
-            if (!runCatching { URI(platformUrl).scheme.equals("https", ignoreCase = true) }
+            if (!runCatching { URI(configuredPlatformUrl.trim()).scheme.equals("https", ignoreCase = true) }
                     .getOrDefault(false)
             ) {
                 return Result.failure(PermanentSummaryUploadException("晨检人数汇总上报地址必须使用HTTPS"))
             }
+            val url = runCatching {
+                PlatformUrlResolver.morningCheckSummaryUploadUrl(configuredPlatformUrl)
+            }.getOrElse { error ->
+                return Result.failure(
+                    PermanentSummaryUploadException(
+                        error.message ?: "平台地址格式无效",
+                        cause = error
+                    )
+                )
+            }
 
-            val response = httpClient.post(
-                "$platformUrl${PlatformApiContract.MORNING_CHECK_SUMMARY_UPLOAD_PATH}"
-            ) {
+            val response = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
                 header("api-key", apiKey)
                 setBody(json.encodeToString(request))

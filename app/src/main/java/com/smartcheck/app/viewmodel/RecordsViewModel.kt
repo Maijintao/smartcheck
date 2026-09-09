@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartcheck.app.data.db.RecordEntity
 import com.smartcheck.app.data.repository.RecordRepository
+import com.smartcheck.app.data.upload.ManualUploadResult
+import com.smartcheck.app.data.upload.PendingUploadManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,13 +16,15 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
 import javax.inject.Inject
 
 @HiltViewModel
 class RecordsViewModel @Inject constructor(
-    private val recordRepository: RecordRepository
+    private val recordRepository: RecordRepository,
+    private val pendingUploadManager: PendingUploadManager,
 ) : ViewModel() {
 
     enum class TimeFilter {
@@ -43,6 +48,12 @@ class RecordsViewModel @Inject constructor(
 
     private val _symptomFlags = MutableStateFlow<Set<String>>(emptySet())
     val symptomFlags: StateFlow<Set<String>> = _symptomFlags.asStateFlow()
+
+    val unuploadedCount: StateFlow<Int> = recordRepository.observeUnuploadedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    private val _manualUploadState = MutableStateFlow(ManualUploadUiState())
+    val manualUploadState: StateFlow<ManualUploadUiState> = _manualUploadState.asStateFlow()
 
     val records: StateFlow<List<RecordEntity>> =
         combine(timeFilter, query, handStatus, healthCertStatus, symptomFlags) { filter, q, hand, cert, symptoms ->
@@ -122,6 +133,34 @@ class RecordsViewModel @Inject constructor(
         _symptomFlags.value = toggleSetValue(_symptomFlags.value, value)
     }
 
+    fun uploadAllUnuploaded() {
+        if (_manualUploadState.value.isUploading) return
+
+        viewModelScope.launch {
+            _manualUploadState.value = ManualUploadUiState(isUploading = true)
+            try {
+                val message = when (val result = pendingUploadManager.uploadAllUnuploaded()) {
+                    ManualUploadResult.NothingToUpload -> "当前没有未上传的晨检记录"
+                    is ManualUploadResult.ConfigurationMissing -> "请先在设置中配置平台地址和 API Key"
+                    is ManualUploadResult.Finished -> when {
+                        result.remainingCount == 0 -> "已成功上传 ${result.uploadedCount} 条晨检记录"
+                        result.uploadedCount == 0 -> "上传失败，仍有 ${result.remainingCount} 条记录未上传"
+                        else -> "已上传 ${result.uploadedCount} 条，仍有 ${result.remainingCount} 条未上传"
+                    }
+                }
+                _manualUploadState.value = ManualUploadUiState(message = message)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _manualUploadState.value = ManualUploadUiState(message = "上传失败：${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    fun consumeManualUploadMessage() {
+        _manualUploadState.value = _manualUploadState.value.copy(message = null)
+    }
+
     private data class FilterState(
         val filter: TimeFilter,
         val query: String,
@@ -134,3 +173,8 @@ class RecordsViewModel @Inject constructor(
         return if (set.contains(value)) set - value else set + value
     }
 }
+
+data class ManualUploadUiState(
+    val isUploading: Boolean = false,
+    val message: String? = null,
+)

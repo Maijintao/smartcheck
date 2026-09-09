@@ -99,7 +99,8 @@ object AppModule {
                 AppDatabase.MIGRATION_7_8,
                 AppDatabase.MIGRATION_8_9,
                 AppDatabase.MIGRATION_9_10,
-                AppDatabase.MIGRATION_10_11
+                AppDatabase.MIGRATION_10_11,
+                AppDatabase.MIGRATION_11_12
             )
             .build()
     }
@@ -236,6 +237,7 @@ object AppModule {
      */
     @Provides
     @Singleton
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     fun provideHttpClient(): HttpClient {
         return HttpClient(CIO) {
             install(ContentNegotiation) {
@@ -243,6 +245,7 @@ object AppModule {
                     ignoreUnknownKeys = true
                     isLenient = true
                     encodeDefaults = true
+                    explicitNulls = true
                 })
             }
             install(io.ktor.client.plugins.HttpTimeout) {

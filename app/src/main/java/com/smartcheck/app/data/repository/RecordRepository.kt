@@ -27,6 +27,8 @@ class RecordRepository @Inject constructor(
     fun getRecordsByUser(userId: Long): Flow<List<RecordEntity>> = 
         recordDao.getRecordsByUser(userId).map { entities -> entities }
 
+    fun observeUnuploadedCount(): Flow<Int> = recordDao.observeUnuploadedCount()
+
     suspend fun insertRecord(record: RecordEntity): Long = recordDao.insertRecord(record)
 
     suspend fun updateRecordEntity(record: RecordEntity): Boolean = recordDao.updateRecordBeforeUpload(record)

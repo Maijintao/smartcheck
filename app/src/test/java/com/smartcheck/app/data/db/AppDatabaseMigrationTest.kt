@@ -24,4 +24,19 @@ class AppDatabaseMigrationTest {
         assertFalse(statements.any { it.contains("DROP TABLE", ignoreCase = true) })
         assertFalse(statements.any { it.contains("DELETE FROM", ignoreCase = true) })
     }
+
+    @Test
+    fun `migration 11 to 12 retries only failures fixed by this release`() {
+        val database = mockk<SupportSQLiteDatabase>()
+        val statements = mutableListOf<String>()
+        every { database.execSQL(capture(statements)) } returns Unit
+
+        AppDatabase.MIGRATION_11_12.migrate(database)
+
+        assertTrue(statements.single().contains("uploadStatus = 'PENDING'"))
+        assertTrue(statements.single().contains("晨检记录上报地址必须使用HTTPS"))
+        assertTrue(statements.single().contains("HTTP 422"))
+        assertTrue(statements.single().contains("Field required"))
+        assertFalse(statements.single().contains("DELETE FROM", ignoreCase = true))
+    }
 }

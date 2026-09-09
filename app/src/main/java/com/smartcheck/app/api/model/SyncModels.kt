@@ -1,5 +1,7 @@
 package com.smartcheck.app.api.model
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -111,12 +113,14 @@ data class PlatformEmployee(
 // ==================== 上传变更 ====================
 
 /** 单条操作（§7.1） */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SyncOperation(
     @SerialName("operation_id") val operationId: String,     // UUID
     val type: SyncOperationType,
     @SerialName("employee_id") val employeeId: String,
     @SerialName("expected_version") val expectedVersion: Long? = null,  // null=首次创建
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val employee: UploadEmployee? = null                      // DELETE 时不传
 )
 

@@ -1050,7 +1050,7 @@ fun SettingsScreen(
                                     )
                                     if (v.isLatest) {
                                         Text(
-                                            text = "当前版本",
+                                            text = "服务器最新",
                                             fontSize = Dimens.TextSizeSmall,
                                             color = Color.White,
                                             modifier = Modifier

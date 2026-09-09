@@ -46,7 +46,7 @@ data class UserEntity(
     /** 平台健康证照片 SHA-256 */
     val healthCertImageSha256: String? = null,
 
-    /** 同步状态：SYNCED / PENDING_UPLOAD / CONFLICT */
+    /** 同步状态：SYNCED / PENDING_UPLOAD / CONFLICT / RECOVERY_REQUIRED */
     val syncStatus: String = "SYNCED"
 ) {
     override fun equals(other: Any?): Boolean {

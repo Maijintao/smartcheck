@@ -87,6 +87,22 @@ interface RecordDao {
     """)
     suspend fun hasPendingUploads(now: Long): Boolean
 
+    @Query("SELECT COUNT(*) FROM check_records WHERE isUploaded = 0")
+    fun observeUnuploadedCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM check_records WHERE isUploaded = 0")
+    suspend fun countUnuploadedRecords(): Int
+
+    @Query("""
+        UPDATE check_records
+        SET uploadStatus = 'PENDING',
+            uploadRetryCount = 0,
+            nextUploadAttemptAt = 0,
+            uploadLastError = NULL
+        WHERE isUploaded = 0
+    """)
+    suspend fun prepareUnuploadedForManualRetry()
+
     @Query("""
         UPDATE check_records
         SET recordUuid = :recordUuid, uploadDeviceId = :deviceId

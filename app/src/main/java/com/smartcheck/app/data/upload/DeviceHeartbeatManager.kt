@@ -1,7 +1,6 @@
 package com.smartcheck.app.data.upload
 
 import com.smartcheck.app.api.model.DeviceHeartbeatResponse
-import com.smartcheck.app.api.PlatformApiContract
 import com.smartcheck.app.data.repository.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -114,7 +113,7 @@ class DeviceHeartbeatManager @Inject constructor(
                 )
             }
 
-            val url = "$platformUrl${PlatformApiContract.HEARTBEAT_PATH}"
+            val url = PlatformUrlResolver.heartbeatUrl(platformUrl)
             Timber.d("[TestConnection] POST $url | api-key=${apiKey.take(8)}...")
 
             val startAt = System.currentTimeMillis()
@@ -196,7 +195,11 @@ class DeviceHeartbeatManager @Inject constructor(
             return
         }
 
-        val url = "$platformUrl${PlatformApiContract.HEARTBEAT_PATH}"
+        val url = runCatching { PlatformUrlResolver.heartbeatUrl(platformUrl) }
+            .getOrElse { error ->
+                Timber.w(error, "[Heartbeat] Invalid platform URL")
+                return
+            }
         val hadPreviousHeartbeat = lastHeartbeatAt > 0L
         lastHeartbeatAt = System.currentTimeMillis()
 

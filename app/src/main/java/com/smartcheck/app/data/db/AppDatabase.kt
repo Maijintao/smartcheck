@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
             SyncStateEntity::class,
             DeletedEmployeeVersionEntity::class
         ],
-        version = 11,
+        version = 12,
         exportSchema = false
     )
 abstract class AppDatabase : RoomDatabase() {
@@ -188,6 +188,29 @@ abstract class AppDatabase : RoomDatabase() {
             )
             database.execSQL(
                 "UPDATE check_records SET uploadStatus = CASE WHEN isUploaded = 1 THEN 'UPLOADED' ELSE 'PENDING' END"
+            )
+        }
+
+        val MIGRATION_11_12 = androidx.room.migration.Migration(11, 12) { database ->
+            database.execSQL(
+                """
+                UPDATE check_records
+                SET uploadStatus = 'PENDING',
+                    uploadRetryCount = 0,
+                    nextUploadAttemptAt = 0,
+                    uploadLastError = NULL
+                WHERE isUploaded = 0
+                  AND uploadStatus = 'FAILED'
+                  AND (
+                      uploadLastError LIKE '%晨检记录上报地址必须使用HTTPS%'
+                      OR (
+                          uploadLastError LIKE '%HTTP 422%'
+                          AND uploadLastError LIKE '%employees%'
+                          AND uploadLastError LIKE '%"id"%'
+                          AND uploadLastError LIKE '%Field required%'
+                      )
+                  )
+                """.trimIndent()
             )
         }
     }

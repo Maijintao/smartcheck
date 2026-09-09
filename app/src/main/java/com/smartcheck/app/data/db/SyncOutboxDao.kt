@@ -23,6 +23,32 @@ interface SyncOutboxDao {
 
     @Query("""
         UPDATE sync_outbox
+        SET status = 'FAILED',
+            last_error = :error,
+            updated_at = :updatedAt
+        WHERE operation_id = :operationId
+    """)
+    suspend fun markFailed(
+        operationId: String,
+        error: String?,
+        updatedAt: Long = System.currentTimeMillis(),
+    )
+
+    @Query("""
+        UPDATE sync_outbox
+        SET status = 'CONFLICT',
+            last_error = :error,
+            updated_at = :updatedAt
+        WHERE operation_id = :operationId
+    """)
+    suspend fun markConflict(
+        operationId: String,
+        error: String?,
+        updatedAt: Long = System.currentTimeMillis(),
+    )
+
+    @Query("""
+        UPDATE sync_outbox
         SET retry_count = retry_count + 1,
             status = 'PENDING',
             last_error = :error,
@@ -35,6 +61,19 @@ interface SyncOutboxDao {
         updatedAt: Long = System.currentTimeMillis()
     )
 
+    @Query("""
+        UPDATE sync_outbox
+        SET expected_version = :version,
+            updated_at = :updatedAt
+        WHERE employee_id = :employeeId
+          AND status = 'PENDING'
+    """)
+    suspend fun updatePendingExpectedVersion(
+        employeeId: String,
+        version: Long,
+        updatedAt: Long = System.currentTimeMillis(),
+    )
+
     @Query("DELETE FROM sync_outbox WHERE operation_id = :operationId")
     suspend fun delete(operationId: String)
 
@@ -43,6 +82,22 @@ interface SyncOutboxDao {
 
     @Query("SELECT COUNT(*) FROM sync_outbox WHERE status = 'PENDING' OR status = 'IN_PROGRESS'")
     suspend fun countPending(): Int
+
+    @Query("""
+        SELECT COUNT(*) FROM sync_outbox
+        WHERE employee_id = :employeeId
+          AND operation_type = 'UPSERT'
+          AND status IN ('PENDING', 'IN_PROGRESS')
+    """)
+    suspend fun countActiveUpserts(employeeId: String): Int
+
+    @Query("""
+        SELECT * FROM sync_outbox
+        WHERE employee_id = :employeeId
+          AND status IN ('PENDING', 'IN_PROGRESS', 'CONFLICT')
+        ORDER BY created_at ASC
+    """)
+    suspend fun getUnresolvedByEmployeeId(employeeId: String): List<SyncOutboxEntity>
 
     @Query("DELETE FROM sync_outbox")
     suspend fun deleteAll()
