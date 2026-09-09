@@ -1,5 +1,6 @@
 package com.smartcheck.app.data.sync
 
+import com.smartcheck.app.api.PlatformApiContract
 import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.repository.SettingsRepository
 import io.ktor.client.*
@@ -89,7 +90,7 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.post("$baseUrl/api/device/employees/changes") {
+                val response = client.post("$baseUrl${PlatformApiContract.EMPLOYEE_CHANGES_PATH}") {
                     header("api-key", apiKey)
                     contentType(ContentType.Application.Json)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
@@ -116,7 +117,7 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/changes") {
+                val response = client.get("$baseUrl${PlatformApiContract.EMPLOYEE_CHANGES_PATH}") {
                     header("api-key", apiKey)
                     parameter("after_cursor", afterCursor)
                     parameter("limit", limit)
@@ -143,7 +144,7 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/$employeeId") {
+                val response = client.get("$baseUrl${PlatformApiContract.employeeDetailPath(employeeId)}") {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_NO_IMAGE }
                 }
@@ -168,7 +169,7 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/snapshot") {
+                val response = client.get("$baseUrl${PlatformApiContract.EMPLOYEE_SNAPSHOT_PATH}") {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
                 }
@@ -194,7 +195,7 @@ class EmployeeSyncApi @Inject constructor(
         if (!isConfigured()) return Result.failure(Exception("平台地址或API Key未配置"))
         return withContext(Dispatchers.IO) {
             try {
-                val response = client.get("$baseUrl/api/device/employees/images/$fileId") {
+                val response = client.get("$baseUrl${PlatformApiContract.employeeImagePath(fileId)}") {
                     header("api-key", apiKey)
                     timeout { requestTimeoutMillis = TIMEOUT_WITH_IMAGE }
                 }

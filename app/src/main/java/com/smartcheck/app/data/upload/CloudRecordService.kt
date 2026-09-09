@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import com.smartcheck.app.api.PlatformApiContract
 import com.smartcheck.app.api.model.MorningCheckEmployee
 import com.smartcheck.app.api.model.MorningCheckUploadRequest
 import com.smartcheck.app.api.model.MorningCheckUploadResponse
@@ -35,7 +36,6 @@ class CloudRecordService @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     companion object {
-        private const val PLATFORM_ENDPOINT = "/api/device/morning-check/upload"
         private const val MAX_IMAGE_DIMENSION = 1280
         private const val MAX_IMAGE_BYTES = 2 * 1024 * 1024
         private const val MAX_BASE64_PAYLOAD_CHARS = 9 * 1024 * 1024
@@ -136,7 +136,7 @@ class CloudRecordService @Inject constructor(
                         "recordUuid=${record.recordUuid}, employeeId=${record.employeeId}"
                 )
 
-                val url = "$platformUrl$PLATFORM_ENDPOINT"
+                val url = "$platformUrl${PlatformApiContract.MORNING_CHECK_UPLOAD_PATH}"
                 Timber.d("POST $url")
 
                 val response = httpClient.post(url) {

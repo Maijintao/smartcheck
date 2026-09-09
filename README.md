@@ -200,6 +200,7 @@ python auth_server.py
 
 - `AGENTS.md` - Agent 开发规范
 - `SETUP_GUIDE.md` - 环境配置指南
+- `docs/第三方平台接口对接文档.md` - 平台侧 7 个接口、设备侧 18 个接口及联调验收
 - `docs/` - 完整技术文档目录
 
 ## 许可证

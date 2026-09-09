@@ -437,9 +437,9 @@ data class MorningCheckEmployee(
     @SerialName("health_cert_status") val healthCertStatus: String,
     @SerialName("symptom_flags") val symptomFlags: List<String>,
     @SerialName("remark") val remark: String,
-    @SerialName("photo") val photo: String? = null,
-    @SerialName("hand_palm_photo") val handPalmPhoto: String? = null,
-    @SerialName("hand_back_photo") val handBackPhoto: String? = null
+    @SerialName("photo") val photo: String?,
+    @SerialName("hand_palm_photo") val handPalmPhoto: String?,
+    @SerialName("hand_back_photo") val handBackPhoto: String?
 )
 
 /**
@@ -494,6 +494,46 @@ data class MorningCheckUploadResponse(
     @SerialName("message") val message: String,
     @SerialName("data") val data: MorningCheckUploadData? = null,
     @SerialName("request_id") val requestId: String? = null
+) {
+    val isSuccess: Boolean get() = code == 200
+}
+
+/**
+ * 平台接入 - 每日晨检人数汇总上报请求
+ */
+@Serializable
+data class MorningCheckSummaryUploadRequest(
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("check_date") val checkDate: String,
+    @SerialName("version") val version: Int,
+    @SerialName("expected_count") val expectedCount: Int,
+    @SerialName("checked_count") val checkedCount: Int,
+    @SerialName("unqualified_count") val unqualifiedCount: Int
+) {
+    fun hasSameContent(other: MorningCheckSummaryUploadRequest): Boolean =
+        deviceId == other.deviceId &&
+            checkDate == other.checkDate &&
+            expectedCount == other.expectedCount &&
+            checkedCount == other.checkedCount &&
+            unqualifiedCount == other.unqualifiedCount
+}
+
+/**
+ * 平台接入 - 每日晨检人数汇总上报响应
+ */
+@Serializable
+data class MorningCheckSummaryUploadData(
+    @SerialName("record_id") val recordId: String,
+    @SerialName("check_date") val checkDate: String,
+    @SerialName("current_version") val currentVersion: Int,
+    @SerialName("result") val result: String
+)
+
+@Serializable
+data class MorningCheckSummaryUploadResponse(
+    @SerialName("code") val code: Int,
+    @SerialName("message") val message: String,
+    @SerialName("data") val data: MorningCheckSummaryUploadData? = null
 ) {
     val isSuccess: Boolean get() = code == 200
 }

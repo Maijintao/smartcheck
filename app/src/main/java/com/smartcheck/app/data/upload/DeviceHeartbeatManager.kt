@@ -1,6 +1,7 @@
 package com.smartcheck.app.data.upload
 
 import com.smartcheck.app.api.model.DeviceHeartbeatResponse
+import com.smartcheck.app.api.PlatformApiContract
 import com.smartcheck.app.data.repository.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -33,7 +34,6 @@ class DeviceHeartbeatManager @Inject constructor(
 ) {
     companion object {
         private const val DEFAULT_HEARTBEAT_INTERVAL_SEC = 30 // 默认心跳间隔 30 秒
-        private const val HEARTBEAT_ENDPOINT = "/api/device/refresh"
         private const val REQUEST_TIMEOUT_MS = 20_000L // 整体请求超时 20 秒
     }
 
@@ -114,7 +114,7 @@ class DeviceHeartbeatManager @Inject constructor(
                 )
             }
 
-            val url = "$platformUrl$HEARTBEAT_ENDPOINT"
+            val url = "$platformUrl${PlatformApiContract.HEARTBEAT_PATH}"
             Timber.d("[TestConnection] POST $url | api-key=${apiKey.take(8)}...")
 
             val startAt = System.currentTimeMillis()
@@ -196,7 +196,7 @@ class DeviceHeartbeatManager @Inject constructor(
             return
         }
 
-        val url = "$platformUrl$HEARTBEAT_ENDPOINT"
+        val url = "$platformUrl${PlatformApiContract.HEARTBEAT_PATH}"
         val hadPreviousHeartbeat = lastHeartbeatAt > 0L
         lastHeartbeatAt = System.currentTimeMillis()
 

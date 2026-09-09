@@ -56,6 +56,10 @@ class UserRepository @Inject constructor(
         }
     }
 
+    suspend fun getAllUsersForApi(): List<User> {
+        return userDao.getAllUsersSync().map { it.toDomain() }
+    }
+
     override suspend fun getUserByFaceFeature(embedding: ByteArray): Result<User> {
         return Result.failure(AppError.NoTargetDetected)
     }

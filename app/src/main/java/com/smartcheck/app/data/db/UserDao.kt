@@ -12,6 +12,9 @@ interface UserDao {
     /** 获取所有员工（同步版，用于快照同步对比） */
     @Query("SELECT * FROM users")
     suspend fun getAllUsersSync(): List<UserEntity>
+
+    @Query("SELECT * FROM users WHERE isActive = 1")
+    suspend fun getAllActiveUsersSync(): List<UserEntity>
     
     @Query("SELECT * FROM users WHERE id = :userId")
     suspend fun getUserById(userId: Long): UserEntity?

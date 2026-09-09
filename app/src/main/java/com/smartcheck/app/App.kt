@@ -12,6 +12,7 @@ import com.smartcheck.app.data.cleanup.RecordCleanupScheduler
 import com.smartcheck.app.data.sync.EmployeeSyncEngine
 import com.smartcheck.app.data.sync.SyncScheduler
 import com.smartcheck.app.data.upload.DeviceHeartbeatManager
+import com.smartcheck.app.data.upload.MorningCheckSummaryScheduler
 import com.smartcheck.app.data.upload.NetworkMonitor
 import com.smartcheck.app.data.upload.PendingUploadManager
 import com.smartcheck.app.data.upload.RecordUploadRetryScheduler
@@ -47,6 +48,9 @@ class App : Application(), CameraXConfig.Provider {
 
     @Inject
     lateinit var recordUploadRetryScheduler: RecordUploadRetryScheduler
+
+    @Inject
+    lateinit var morningCheckSummaryScheduler: MorningCheckSummaryScheduler
 
     @Inject
     lateinit var employeeSyncEngine: EmployeeSyncEngine
@@ -95,6 +99,9 @@ class App : Application(), CameraXConfig.Provider {
 
         // 启动晨检记录重试调度器（平台断联恢复后自动重发）
         startRecordUploadRetry()
+
+        // 启动每日晨检人数汇总上报
+        startMorningCheckSummaryUpload()
 
         // 启动员工同步引擎
         startEmployeeSync()
@@ -269,6 +276,21 @@ class App : Application(), CameraXConfig.Provider {
             }, 8000)
         } catch (e: Exception) {
             Timber.e(e, "Failed to start RecordUploadRetryScheduler")
+        }
+    }
+
+    private fun startMorningCheckSummaryUpload() {
+        try {
+            android.os.Handler(mainLooper).postDelayed({
+                if (::morningCheckSummaryScheduler.isInitialized) {
+                    morningCheckSummaryScheduler.start()
+                    Timber.i("MorningCheckSummaryScheduler started")
+                } else {
+                    Timber.e("MorningCheckSummaryScheduler failed to initialize")
+                }
+            }, 12_000)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start MorningCheckSummaryScheduler")
         }
     }
 

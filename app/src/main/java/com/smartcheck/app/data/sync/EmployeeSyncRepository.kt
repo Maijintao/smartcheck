@@ -47,7 +47,7 @@ class EmployeeSyncRepository @Inject constructor(
     // ==================== 本地变更（写 outbox + DB，同事务）====================
 
     /**
-     * 本地新增员工 — 事务：insert user + insert outbox(UPSERT, expectedVersion=null)
+     * 本地新增员工 — 首次创建 expectedVersion=null，恢复已删除员工时使用删除版本
      * @return operation_id（UUID）
      */
     suspend fun createLocal(
@@ -58,6 +58,7 @@ class EmployeeSyncRepository @Inject constructor(
         try {
             val operationId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
+            val deletedVersion = deletedVersionDao.getVersion(user.employeeId)?.platformVersion
 
             val faceSha256 = faceImagePath?.let { sha256OfFile(it) }
             val certSha256 = certImagePath?.let { sha256OfFile(it) }
@@ -68,13 +69,13 @@ class EmployeeSyncRepository @Inject constructor(
             )
 
             appDatabase.withTransaction {
-                val userId = userDao.insertUser(user.copy(syncStatus = "PENDING_UPLOAD").toEntity())
+                userDao.insertUser(user.copy(syncStatus = "PENDING_UPLOAD").toEntity())
 
                 outboxDao.insert(SyncOutboxEntity(
                     operationId = operationId,
                     operationType = "UPSERT",
                     employeeId = user.employeeId,
-                    expectedVersion = null,   // 首次创建
+                    expectedVersion = deletedVersion,
                     payloadJson = payload,
                     faceImageAction = if (faceImagePath != null) "REPLACE" else "CLEAR",
                     faceImageLocalPath = faceImagePath,

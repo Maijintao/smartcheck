@@ -36,6 +36,7 @@ class EmployeeSyncEngine @Inject constructor(
     private val syncRepo: EmployeeSyncRepository,
     private val outboxDao: SyncOutboxDao,
     private val userDao: UserDao,
+    private val deletedVersionDao: DeletedEmployeeVersionDao,
     private val syncStateDao: SyncStateDao,
     private val imageHelper: ImageSyncHelper,
     private val faceEngine: FaceEngine,
@@ -164,7 +165,10 @@ class EmployeeSyncEngine @Inject constructor(
             if (pending.isEmpty()) break
 
             val batchId = UUID.randomUUID().toString()
-            val deviceId = settingsRepository.deviceId.value.ifBlank { "UNKNOWN" }
+            val deviceId = settingsRepository.deviceId.value.trim()
+            if (deviceId.isBlank()) {
+                throw IllegalStateException("设备ID未配置，无法上传员工变更")
+            }
 
             val operations = pending.map { op ->
                 buildSyncOperation(op)
@@ -272,15 +276,12 @@ class EmployeeSyncEngine @Inject constructor(
             when (result.status) {
                 SyncResultStatus.APPLIED -> {
                     outboxDao.delete(op.operationId)
-                    // 更新本地员工的平台版本号
-                    if (result.employeeVersion != null) {
-                        userDao.updateVersionFromRemote(op.employeeId, result.employeeVersion)
-                        userDao.updateSyncStatus(op.employeeId, "SYNCED")
-                    }
+                    applyConfirmedVersion(op, result.employeeVersion)
                 }
                 SyncResultStatus.DUPLICATE -> {
                     // 已处理过，视为成功
                     outboxDao.delete(op.operationId)
+                    applyConfirmedVersion(op, result.employeeVersion)
                 }
                 SyncResultStatus.CONFLICT -> {
                     // 标记冲突，等用户处理
@@ -295,6 +296,25 @@ class EmployeeSyncEngine @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun applyConfirmedVersion(
+        operation: SyncOutboxEntity,
+        employeeVersion: Long?
+    ) {
+        if (employeeVersion == null) return
+        if (operation.operationType == "DELETE") {
+            deletedVersionDao.insert(
+                DeletedEmployeeVersionEntity(
+                    employeeId = operation.employeeId,
+                    platformVersion = employeeVersion,
+                )
+            )
+            return
+        }
+        userDao.updateVersionFromRemote(operation.employeeId, employeeVersion)
+        userDao.updateSyncStatus(operation.employeeId, "SYNCED")
+        deletedVersionDao.delete(operation.employeeId)
     }
 
     // ==================== 增量拉取 ====================
