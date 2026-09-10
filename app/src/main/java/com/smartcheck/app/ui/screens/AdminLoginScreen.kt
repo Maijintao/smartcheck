@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -20,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -29,14 +31,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.smartcheck.app.BuildConfig
 import com.smartcheck.app.data.repository.AdminAuthRepository
-import com.smartcheck.app.ui.theme.Dimens
+import com.smartcheck.app.utils.DeviceAuth
 import com.smartcheck.app.viewmodel.AdminAuthViewModel
 import com.smartcheck.app.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminLoginScreen(
-    onNavigateBack: () -> Unit,
     onLoginSuccess: () -> Unit = {},
     viewModel: AdminAuthViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
@@ -46,6 +47,8 @@ fun AdminLoginScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var rememberPassword by remember { mutableStateOf(true) }
+    var showActivationDialog by remember { mutableStateOf(false) }
+    var activationMac by remember { mutableStateOf<String?>(null) }
 
     val storedAccount by viewModel.account.collectAsState()
     val loginTitle by settingsViewModel.loginTitle.collectAsState()
@@ -393,7 +396,10 @@ fun AdminLoginScreen(
 
                 // 激活设备
                 TextButton(
-                    onClick = onNavigateBack,
+                    onClick = {
+                        activationMac = DeviceAuth.getCurrentDeviceMac()
+                        showActivationDialog = true
+                    },
                     modifier = Modifier.height(36.dp)
                 ) {
                     Text(
@@ -404,6 +410,44 @@ fun AdminLoginScreen(
                     )
                 }
             }
+        }
+
+        if (showActivationDialog) {
+            AlertDialog(
+                onDismissRequest = { showActivationDialog = false },
+                title = { Text("设备认证") },
+                text = {
+                    Column {
+                        Text(
+                            text = "请将以下 MAC 地址添加到设备认证白名单：",
+                            color = textMain,
+                            fontSize = 15.sp,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = bgInput,
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = activationMac ?: "未能获取设备 MAC 地址",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                    color = if (activationMac == null) MaterialTheme.colorScheme.error else textMain,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showActivationDialog = false }) {
+                        Text("知道了", color = primaryColor)
+                    }
+                },
+            )
         }
     }
 }

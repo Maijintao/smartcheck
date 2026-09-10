@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -178,7 +179,7 @@ class EmployeeSyncEngine @Inject constructor(
             val pending = queued.distinctBy { it.employeeId }
 
             val batchId = stableSyncBatchId(pending)
-            val deviceId = settingsRepository.deviceId.value
+            val deviceId = normalizeEmployeeSyncDeviceId(settingsRepository.deviceId.value)
             require(deviceId.isNotBlank()) { "设备ID未配置，请在设置中配置设备ID" }
 
             val operations = pending.map { op ->
@@ -552,6 +553,14 @@ internal fun stableSyncBatchId(operations: List<SyncOutboxEntity>): String {
     val operationKey = operations.map { it.operationId }.sorted().joinToString("|")
     return UUID.nameUUIDFromBytes(operationKey.toByteArray(Charsets.UTF_8)).toString()
 }
+
+internal fun normalizeEmployeeSyncDeviceId(value: String): String {
+    val trimmed = value.trim()
+    if (!MAC_DEVICE_ID_PATTERN.matches(trimmed)) return trimmed
+    return trimmed.replace('-', ':').uppercase(Locale.US)
+}
+
+private val MAC_DEVICE_ID_PATTERN = Regex("^[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}$")
 
 internal fun isRetryableSyncFailure(error: Throwable?): Boolean {
     if (error == null) return true

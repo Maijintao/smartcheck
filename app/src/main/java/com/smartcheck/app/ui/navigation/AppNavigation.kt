@@ -34,7 +34,6 @@ fun AppNavigation() {
         composable("login") {
             val authViewModel: AdminAuthViewModel = hiltViewModel()
             AdminLoginScreen(
-                onNavigateBack = { },
                 onLoginSuccess = {
                     navController.navigate("dashboard") {
                         popUpTo("login") { inclusive = true }

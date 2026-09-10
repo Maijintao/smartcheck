@@ -116,6 +116,30 @@ class EmployeeSyncEngineTest {
     }
 
     @Test
+    fun `员工同步上传时将小写MAC规范化为平台格式`() = runTest {
+        val operation = pendingUpsert("operation-1", "EMP-001")
+        val request = slot<UploadChangesRequest>()
+        prepareRegularSync(
+            pending = listOf(operation),
+            deviceId = " c0:8b:27:44:db:60 ",
+        )
+        coEvery { syncApi.uploadChanges(capture(request)) } returns Result.success(
+            uploadResponse(
+                SyncOperationResult(
+                    operationId = operation.operationId,
+                    employeeId = operation.employeeId,
+                    status = SyncResultStatus.APPLIED,
+                    employeeVersion = 1,
+                ),
+            ),
+        )
+
+        engine.triggerSync()
+
+        assertEquals("C0:8B:27:44:DB:60", request.captured.deviceId)
+    }
+
+    @Test
     fun `重复响应仍回写员工版本并完成同步`() = runTest {
         val operation = pendingUpsert("operation-1", "EMP-001")
         prepareRegularSync(listOf(operation))
@@ -197,7 +221,10 @@ class EmployeeSyncEngineTest {
         )
     }
 
-    private fun prepareRegularSync(pending: List<SyncOutboxEntity>) {
+    private fun prepareRegularSync(
+        pending: List<SyncOutboxEntity>,
+        deviceId: String = "DEVICE-001",
+    ) {
         coEvery { syncRepository.enqueueLocalOnlyEmployeesForUpload() } returns Result.success(0)
         coEvery { outboxDao.getPending(any()) } returnsMany listOf(pending, emptyList())
         coEvery { syncApi.pullChanges(any(), any()) } returns Result.success(
@@ -208,7 +235,7 @@ class EmployeeSyncEngineTest {
                 serverTime = 1_000,
             ),
         )
-        every { settingsRepository.deviceId.value } returns "DEVICE-001"
+        every { settingsRepository.deviceId.value } returns deviceId
     }
 
     private fun pendingUpsert(operationId: String, employeeId: String): SyncOutboxEntity {
