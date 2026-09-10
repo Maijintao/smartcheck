@@ -19,16 +19,11 @@ import io.ktor.serialization.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.utils.io.*
-import io.ktor.server.plugins.contentnegotiation.*
-import io.ktor.serialization.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,99 +44,70 @@ class ApiService @Inject constructor(
     private val systemUserDao: SystemUserDao
 ) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     /**
      * 配置路由
      */
     fun configureRouting(routing: Routing) {
         routing {
             // 健康检查（无需认证）
-            get("/health") {
+            get(DeviceApiContract.HEALTH) {
                 call.respond(ApiResponse.success(HealthStatusResponse("ok", System.currentTimeMillis())))
             }
 
-            // 认证相关
-            route("/api/auth") {
-                post("/login") {
-                    handleLogin(call)
-                }
+            post(DeviceApiContract.LOGIN) {
+                handleLogin(call)
             }
 
-            // 账号同步（需要认证）
             authenticate("auth-jwt") {
-                route("/api/users") {
-                    post("/sync") {
-                        handleSyncUsers(call)
-                    }
-                }
-            }
-
-            // 需要认证的接口
-            authenticate("auth-jwt") {
-                route("/api/records") {
-                    get {
-                        handleGetRecords(call)
-                    }
-
-                    get("/sync") {
-                        handleSyncRecords(call)
-                    }
-
-                    get("/{id}") {
-                        handleGetRecordById(call)
-                    }
-
-                    get("/statistics") {
-                        handleGetStatistics(call)
-                    }
-
-                    post("/export") {
-                        handleExportRecords(call)
-                    }
+                post(DeviceApiContract.USER_SYNC) {
+                    handleSyncUsers(call)
                 }
 
-                // 员工信息
-                route("/api/employees") {
-                    get {
-                        handleGetEmployees(call)
-                    }
-
-                    get("/sync") {
-                        handleSyncEmployees(call)
-                    }
-
-                    post("/import") {
-                        handleImportEmployees(call)
-                    }
-
-                    post("/upload-photo") {
-                        handleUploadEmployeePhoto(call)
-                    }
-
-                    post("/upload-cert-photo") {
-                        handleUploadHealthCertPhoto(call)
-                    }
-
-                    delete("/clear-all") {
-                        handleClearAllEmployees(call)
-                    }
-
-                    delete("/{employeeId}") {
-                        handleDeleteEmployee(call)
-                    }
+                get(DeviceApiContract.RECORDS) {
+                    handleGetRecords(call)
+                }
+                get(DeviceApiContract.RECORD_SYNC) {
+                    handleSyncRecords(call)
+                }
+                get(DeviceApiContract.RECORD_STATISTICS) {
+                    handleGetStatistics(call)
+                }
+                get(DeviceApiContract.RECORD_DETAIL) {
+                    handleGetRecordById(call)
+                }
+                post(DeviceApiContract.RECORD_EXPORT) {
+                    handleExportRecords(call)
                 }
 
-                // 图片下载
-                get("/api/images/{filename}") {
+                get(DeviceApiContract.EMPLOYEES) {
+                    handleGetEmployees(call)
+                }
+                get(DeviceApiContract.EMPLOYEE_SYNC) {
+                    handleSyncEmployees(call)
+                }
+                post(DeviceApiContract.EMPLOYEE_IMPORT) {
+                    handleImportEmployees(call)
+                }
+                post(DeviceApiContract.EMPLOYEE_UPLOAD_PHOTO) {
+                    handleUploadEmployeePhoto(call)
+                }
+                post(DeviceApiContract.EMPLOYEE_UPLOAD_CERT_PHOTO) {
+                    handleUploadHealthCertPhoto(call)
+                }
+                delete(DeviceApiContract.EMPLOYEE_CLEAR_ALL) {
+                    handleClearAllEmployees(call)
+                }
+                delete(DeviceApiContract.EMPLOYEE_DELETE) {
+                    handleDeleteEmployee(call)
+                }
+
+                get(DeviceApiContract.RECORD_IMAGE) {
                     handleGetImage(call)
                 }
-
-                get("/api/employee-images/{filename}") {
+                get(DeviceApiContract.EMPLOYEE_IMAGE) {
                     handleGetEmployeeImage(call)
                 }
-
-                get("/api/downloads/{filename}") {
+                get(DeviceApiContract.DOWNLOAD) {
                     handleDownloadFile(call)
                 }
             }
@@ -228,11 +194,17 @@ class ApiService @Inject constructor(
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<PageResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "startDate 和 endDate 不能为空"))
                 return
             }
+            if (page < 1 || pageSize !in 1..100) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<PageResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "page 必须大于等于1，pageSize 必须在1到100之间"))
+                return
+            }
 
-            // 解析日期
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
-            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
+            val dateRange = parseDateRange(startDate, endDate)
+            if (dateRange == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<PageResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "日期格式必须为yyyy-MM-dd，且startDate不能晚于endDate"))
+                return
+            }
+            val (startTimeMillis, endTimeMillis) = dateRange
 
             // 查询记录
             val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
@@ -324,8 +296,8 @@ class ApiService @Inject constructor(
             val lastRecordId = call.request.queryParameters["lastRecordId"]?.toLongOrNull()
             val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
 
-            if (lastRecordId == null) {
-                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<SyncResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "lastRecordId 不能为空"))
+            if (lastRecordId == null || lastRecordId < 0) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<SyncResponse<RecordResponse>>(ErrorCodes.INVALID_PARAMS, "lastRecordId 必须是大于等于0的整数"))
                 return
             }
 
@@ -366,10 +338,13 @@ class ApiService @Inject constructor(
                 return
             }
 
-            // 解析日期
+            val dateRange = parseDateRange(startDate, endDate)
+            if (dateRange == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<StatisticsResponse>(ErrorCodes.INVALID_PARAMS, "日期格式必须为yyyy-MM-dd，且startDate不能晚于endDate"))
+                return
+            }
+            val (startTimeMillis, endTimeMillis) = dateRange
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
-            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
 
             // 查询记录
             val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
@@ -424,20 +399,31 @@ class ApiService @Inject constructor(
             val request = call.receive<ExportRequest>()
             val startDate = request.startDate
             val endDate = request.endDate
-            val format = request.format
-
             if (startDate.isBlank() || endDate.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<ExportResponse>(ErrorCodes.INVALID_PARAMS, "startDate 和 endDate 不能为空"))
                 return
             }
+            if (!request.format.equals("csv", ignoreCase = true)) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<ExportResponse>(ErrorCodes.INVALID_PARAMS, "当前仅支持csv格式"))
+                return
+            }
 
-            // 解析日期
+            val dateRange = parseDateRange(startDate, endDate)
+            if (dateRange == null) {
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<ExportResponse>(ErrorCodes.INVALID_PARAMS, "日期格式必须为yyyy-MM-dd，且startDate不能晚于endDate"))
+                return
+            }
+            val (startTimeMillis, endTimeMillis) = dateRange
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val startTimeMillis = dateFormat.parse(startDate)?.time ?: 0
-            val endTimeMillis = dateFormat.parse(endDate)?.time?.plus(24 * 60 * 60 * 1000 - 1) ?: System.currentTimeMillis()
 
             // 查询记录
             val records = recordRepository.getRecordsByTimeRangeSync(startTimeMillis, endTimeMillis)
+                .let { records ->
+                    request.employeeId
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { employeeId -> records.filter { it.employeeId == employeeId } }
+                        ?: records
+                }
 
             // 生成文件名
             val fileName = "records_${startDate}_${endDate}.csv"
@@ -482,14 +468,18 @@ class ApiService @Inject constructor(
             Timber.d("handleGetEmployees: 开始获取员工列表")
             
             val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
-            val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull()?.coerceAtMost(100) ?: 20
+            val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull() ?: 20
             val employeeId = call.request.queryParameters["employeeId"]
             val isActive = call.request.queryParameters["isActive"]?.toBooleanStrictOrNull()
 
             Timber.d("handleGetEmployees: page=$page, pageSize=$pageSize, employeeId=$employeeId, isActive=$isActive")
+            if (page < 1 || pageSize !in 1..100) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<PageResponse<EmployeeResponse>>(responseCode, "page 必须大于等于1，pageSize 必须在1到100之间"))
+                return
+            }
 
-            // 获取所有员工 - 使用 first() 获取第一个值
-            val allUsers = userRepository.observeAllUsers().first()
+            val allUsers = userRepository.getAllUsersForApi()
 
             Timber.d("handleGetEmployees: 总用户数 = ${allUsers.size}")
 
@@ -544,7 +534,12 @@ class ApiService @Inject constructor(
 
         try {
             val lastEmployeeId = call.request.queryParameters["lastEmployeeId"]?.toLongOrNull() ?: 0
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceAtMost(500) ?: 100
+            val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
+            if (lastEmployeeId < 0) {
+                responseCode = ErrorCodes.INVALID_PARAMS
+                call.respond(HttpStatusCode.BadRequest, ApiResponse.error<SyncResponse<EmployeeResponse>>(responseCode, "lastEmployeeId 必须是大于等于0的整数"))
+                return
+            }
 
             val employees = userRepository.getUsersAfterId(lastEmployeeId, limit)
             val employeeResponses = employees.map { it.toEmployeeResponse() }
@@ -1007,7 +1002,11 @@ class ApiService @Inject constructor(
                 return
             }
 
-            if (!fileNameStr.matches(Regex("^face_[A-Za-z0-9_]+\\.jpg$", RegexOption.IGNORE_CASE))) {
+            val employeeId = Regex(
+                "^face_([A-Za-z0-9_]+)\\.jpg$",
+                RegexOption.IGNORE_CASE
+            ).matchEntire(fileNameStr)?.groupValues?.get(1)
+            if (employeeId == null) {
                 responseCode = ErrorCodes.INVALID_PARAMS
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名格式错误，应为 face_{工号}.jpg，例如 face_001.jpg"))
                 return
@@ -1018,8 +1017,6 @@ class ApiService @Inject constructor(
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片不能为空"))
                 return
             }
-
-            val employeeId = fileNameStr.removePrefix("face_").removeSuffix(".jpg").lowercase()
 
             val user = userRepository.getUserByEmployeeId(employeeId).getOrNull()
             if (user == null) {
@@ -1071,7 +1068,13 @@ class ApiService @Inject constructor(
             bitmap.recycle()
 
             val updatedUser = user.copy(faceEmbedding = faceEmbedding, faceImagePath = savedFileName)
-            userRepository.updateUser(updatedUser)
+            val updateResult = userRepository.updateUser(updatedUser)
+            if (updateResult.isFailure) {
+                responseCode = ErrorCodes.INTERNAL_ERROR
+                errorMessage = updateResult.exceptionOrNull()?.message
+                call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, "保存员工人脸失败: ${errorMessage ?: "unknown"}"))
+                return
+            }
             faceEngine.refreshUserCache()
 
             Timber.d("上传员工照片成功: employeeId=$employeeId, userId=${user.id}")
@@ -1113,7 +1116,11 @@ class ApiService @Inject constructor(
                 return
             }
 
-            if (!fileNameStr.matches(Regex("^cert_[A-Za-z0-9_]+\\.(jpg|jpeg|png)$", RegexOption.IGNORE_CASE))) {
+            val employeeId = Regex(
+                "^cert_([A-Za-z0-9_]+)\\.(jpg|jpeg|png)$",
+                RegexOption.IGNORE_CASE
+            ).matchEntire(fileNameStr)?.groupValues?.get(1)
+            if (employeeId == null) {
                 responseCode = ErrorCodes.INVALID_PARAMS
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "文件名格式错误，应为 cert_{工号}.jpg，例如 cert_001.jpg"))
                 return
@@ -1124,8 +1131,6 @@ class ApiService @Inject constructor(
                 call.respond(HttpStatusCode.BadRequest, ApiResponse.error<String>(responseCode, "图片不能为空"))
                 return
             }
-
-            val employeeId = fileNameStr.removePrefix("cert_").substringBefore(".").lowercase()
 
             val user = userRepository.getUserByEmployeeId(employeeId).getOrNull()
             if (user == null) {
@@ -1150,7 +1155,13 @@ class ApiService @Inject constructor(
             bitmap.recycle()
 
             val updatedUser = user.copy(healthCertImagePath = savedFileName)
-            userRepository.updateUser(updatedUser)
+            val updateResult = userRepository.updateUser(updatedUser)
+            if (updateResult.isFailure) {
+                responseCode = ErrorCodes.INTERNAL_ERROR
+                errorMessage = updateResult.exceptionOrNull()?.message
+                call.respond(HttpStatusCode.InternalServerError, ApiResponse.error<String>(responseCode, "保存健康证照片失败: ${errorMessage ?: "unknown"}"))
+                return
+            }
 
             Timber.d("上传健康证照片成功: employeeId=$employeeId, userId=${user.id}")
 
@@ -1559,5 +1570,17 @@ class ApiService @Inject constructor(
         val buffer = java.nio.ByteBuffer.allocate(feature.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         buffer.asFloatBuffer().put(feature)
         return buffer.array()
+    }
+
+    private fun parseDateRange(startDate: String, endDate: String): Pair<Long, Long>? {
+        return runCatching {
+            val start = LocalDate.parse(startDate)
+            val end = LocalDate.parse(endDate)
+            require(!start.isAfter(end))
+            val zoneId = ZoneId.systemDefault()
+            val startMillis = start.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val endMillis = end.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+            startMillis to endMillis
+        }.getOrNull()
     }
 }

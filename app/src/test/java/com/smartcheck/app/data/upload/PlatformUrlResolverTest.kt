@@ -11,6 +11,12 @@ class PlatformUrlResolverTest {
             "https://dt.datanginfo.com/xyc/api/device/morning-check/upload",
             PlatformUrlResolver.morningCheckUploadUrl("https://dt.datanginfo.com/xyc/execution"),
         )
+        assertEquals(
+            "https://dt.datanginfo.com/xyc/api/device/morning-check/summary/upload",
+            PlatformUrlResolver.morningCheckSummaryUploadUrl(
+                "https://dt.datanginfo.com/xyc/execution"
+            ),
+        )
     }
 
     @Test
@@ -28,6 +34,12 @@ class PlatformUrlResolverTest {
         assertEquals(
             "http://192.168.1.2/xyc/api/device/morning-check/upload",
             PlatformUrlResolver.morningCheckUploadUrl("http://192.168.1.2/xyc/api/device"),
+        )
+        assertEquals(
+            "https://dt.datanginfo.com/xyc/api/device/morning-check/summary/upload",
+            PlatformUrlResolver.morningCheckSummaryUploadUrl(
+                "https://dt.datanginfo.com/xyc/api/device/morning-check/summary/upload"
+            ),
         )
     }
 

@@ -157,4 +157,48 @@ class MorningCheckUploadRequestTest {
         assertNull(response.data?.handBackImageUrl)
         assertNull(response.requestId)
     }
+
+    @Test
+    fun `request keeps nullable image fields when images are missing`() {
+        val request = MorningCheckUploadRequest(
+            deviceId = "DEVICE001",
+            timestamp = 1_716_259_200_000,
+            employees = listOf(
+                MorningCheckEmployee(
+                    employeeId = "E001",
+                    name = "Test User",
+                    recordId = 1001,
+                    recordUuid = "123e4567-e89b-42d3-a456-426614174000",
+                    userId = 1,
+                    temperature = 36.5f,
+                    isTempNormal = true,
+                    isHandNormal = null,
+                    isPassed = false,
+                    handStatus = "NOT_CHECKED",
+                    hasForeignObject = null,
+                    handAbnormalTypes = emptyList(),
+                    healthCertStatus = "VALID",
+                    symptomFlags = emptyList(),
+                    remark = "",
+                    photo = null,
+                    handPalmPhoto = null,
+                    handBackPhoto = null
+                )
+            )
+        )
+
+        val employee = Json.parseToJsonElement(Json.encodeToString(request))
+            .jsonObject
+            .getValue("employees")
+            .jsonArray
+            .single()
+            .jsonObject
+
+        assertTrue("photo" in employee)
+        assertTrue("hand_palm_photo" in employee)
+        assertTrue("hand_back_photo" in employee)
+        assertEquals("null", employee.getValue("photo").toString())
+        assertEquals("null", employee.getValue("hand_palm_photo").toString())
+        assertEquals("null", employee.getValue("hand_back_photo").toString())
+    }
 }

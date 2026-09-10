@@ -4,17 +4,11 @@ import com.smartcheck.app.api.model.*
 import com.smartcheck.app.data.db.*
 import com.smartcheck.app.data.repository.SettingsRepository
 import com.smartcheck.app.ml.FaceEngine
-import com.smartcheck.app.utils.FileUtil
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.Locale
 import java.util.UUID
@@ -341,6 +335,7 @@ class EmployeeSyncEngine @Inject constructor(
                 syncRepo.recordDeletedVersion(operation.employeeId, employeeVersion)
             } else {
                 userDao.updateVersionFromRemote(operation.employeeId, employeeVersion)
+                syncRepo.clearDeletedVersion(operation.employeeId)
                 outboxDao.updatePendingExpectedVersion(operation.employeeId, employeeVersion)
                 val hasPendingUpsert = outboxDao.countActiveUpserts(operation.employeeId) > 0
                 userDao.updateSyncStatus(

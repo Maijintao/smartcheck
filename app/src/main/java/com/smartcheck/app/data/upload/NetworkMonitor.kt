@@ -19,6 +19,7 @@ class NetworkMonitor @Inject constructor(
     private val pendingUploadManager: PendingUploadManager,
     private val deviceHeartbeatManager: DeviceHeartbeatManager,
     private val employeeSyncEngine: EmployeeSyncEngine,
+    private val morningCheckSummaryManager: MorningCheckSummaryManager,
     private val appScope: CoroutineScope
 ) {
     private val connectivityManager =
@@ -30,6 +31,7 @@ class NetworkMonitor @Inject constructor(
             Timber.d("Network available, triggering pending uploads, heartbeat, and employee sync")
             pendingUploadManager.enqueue(0L)
             deviceHeartbeatManager.triggerImmediate()
+            morningCheckSummaryManager.trigger()
 
             // 网络恢复时触发员工同步
             appScope.launch {

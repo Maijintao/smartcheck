@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets
 
 internal object PlatformUrlResolver {
     private const val MORNING_CHECK_ENDPOINT = "/api/device/morning-check/upload"
+    private const val MORNING_CHECK_SUMMARY_ENDPOINT = "/api/device/morning-check/summary/upload"
     private const val HEARTBEAT_ENDPOINT = "/api/device/refresh"
     private const val DEVICE_API_SUFFIX = "/api/device"
     private const val LEGACY_EXECUTION_SUFFIX = "/execution"
@@ -13,6 +14,10 @@ internal object PlatformUrlResolver {
 
     fun morningCheckUploadUrl(configuredUrl: String): String {
         return "${deviceApiBaseUrl(configuredUrl)}/morning-check/upload"
+    }
+
+    fun morningCheckSummaryUploadUrl(configuredUrl: String): String {
+        return "${deviceApiBaseUrl(configuredUrl)}/morning-check/summary/upload"
     }
 
     fun heartbeatUrl(configuredUrl: String): String {
@@ -47,6 +52,8 @@ internal object PlatformUrlResolver {
 
         val configuredPath = uri.rawPath.orEmpty().trimEnd('/')
         val basePath = when {
+            configuredPath.endsWith(MORNING_CHECK_SUMMARY_ENDPOINT, ignoreCase = true) ->
+                configuredPath.dropLast(MORNING_CHECK_SUMMARY_ENDPOINT.length)
             configuredPath.endsWith(MORNING_CHECK_ENDPOINT, ignoreCase = true) ->
                 configuredPath.dropLast(MORNING_CHECK_ENDPOINT.length)
             configuredPath.endsWith(HEARTBEAT_ENDPOINT, ignoreCase = true) ->

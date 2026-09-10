@@ -164,12 +164,7 @@ class EmployeeSyncEngineTest {
 
     @Test
     fun `删除成功保存平台返回的最终版本`() = runTest {
-        val operation = SyncOutboxEntity(
-            operationId = "operation-delete",
-            operationType = "DELETE",
-            employeeId = "EMP-001",
-            expectedVersion = 6,
-        )
+        val operation = pendingDelete("operation-delete", "EMP-001", 6)
         prepareRegularSync(listOf(operation))
         coEvery { syncApi.uploadChanges(any()) } returns Result.success(
             uploadResponse(
@@ -186,6 +181,27 @@ class EmployeeSyncEngineTest {
 
         coVerify { syncRepository.recordDeletedVersion("EMP-001", 7) }
         coVerify(exactly = 0) { userDao.updateVersionFromRemote(any(), any()) }
+    }
+
+    @Test
+    fun `重复删除响应也保存平台返回的最终版本`() = runTest {
+        val operation = pendingDelete("operation-delete-duplicate", "EMP-001", 7)
+        prepareRegularSync(listOf(operation))
+        coEvery { syncApi.uploadChanges(any()) } returns Result.success(
+            uploadResponse(
+                SyncOperationResult(
+                    operationId = operation.operationId,
+                    employeeId = operation.employeeId,
+                    status = SyncResultStatus.DUPLICATE,
+                    employeeVersion = 8,
+                ),
+            ),
+        )
+
+        engine.triggerSync()
+
+        coVerify { syncRepository.recordDeletedVersion("EMP-001", 8) }
+        coVerify { outboxDao.delete(operation.operationId) }
     }
 
     @Test
@@ -244,6 +260,19 @@ class EmployeeSyncEngineTest {
             operationType = "UPSERT",
             employeeId = employeeId,
             payloadJson = """{"name":"张三","status":"ACTIVE","face_image":{"action":"KEEP"}}""",
+        )
+    }
+
+    private fun pendingDelete(
+        operationId: String,
+        employeeId: String,
+        expectedVersion: Long
+    ): SyncOutboxEntity {
+        return SyncOutboxEntity(
+            operationId = operationId,
+            operationType = "DELETE",
+            employeeId = employeeId,
+            expectedVersion = expectedVersion,
         )
     }
 
